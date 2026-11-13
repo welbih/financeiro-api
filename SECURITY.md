@@ -43,10 +43,11 @@ Fora de `dev`, configure tambem `JWT_JWK` com uma chave RSA privada persistente
 em JSON JWK, de pelo menos 2048 bits, contendo `kid`. A chave nao e versionada.
 O Resource Server verifica assinatura, emissor, audiencia e validade temporal.
 
-O cliente registrado e os registros de autorizacao ficam em memoria. Nao ha
-refresh token neste fluxo. A reinicializacao perde os registros de autorizacao;
-com uma chave persistente, JWTs ja emitidos continuam validos ate expirarem.
-Persistencia e revogacao de tokens exigem configuracao adicional.
+O cliente e definido pelas variaveis de ambiente. Em `dev`, os registros de
+autorizacao ficam em memoria; fora de `dev`, sao persistidos via JDBC na tabela
+`oauth2_authorization`. Nao ha refresh token neste fluxo. JWTs ja emitidos
+continuam validos ate expirarem, mesmo apos revogacao no Authorization Server;
+revogacao imediata no Resource Server exige configuracao adicional.
 
-As migracoes e configuracoes de banco de producao devem ser habilitadas no
-ambiente correspondente; o profile `dev` continua recriando as tabelas e seeds.
+O profile padrao e `prod`, com migrations e sem seed. Apenas `dev` carrega
+`.env` e recria as tabelas e seeds. Consulte `DEPLOY.md` para publicar no Railway.

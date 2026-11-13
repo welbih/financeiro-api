@@ -2,6 +2,8 @@ package com.datadynecode.financeiro.api.config;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 import com.datadynecode.financeiro.api.config.auth.PasswordGrantAuthenticationConverter;
 import com.datadynecode.financeiro.api.config.auth.PasswordGrantAuthenticationProvider;
@@ -11,6 +13,8 @@ import com.nimbusds.jose.proc.SecurityContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
@@ -75,8 +79,16 @@ public class AuthorizationServerConfig {
     }
 
     @Bean
+    @Profile("dev")
     public OAuth2AuthorizationService authorizationService() {
         return new InMemoryOAuth2AuthorizationService();
+    }
+
+    @Bean
+    @Profile("!dev")
+    public OAuth2AuthorizationService persistentAuthorizationService(JdbcOperations jdbc,
+            RegisteredClientRepository clients) {
+        return new JdbcOAuth2AuthorizationService(jdbc, clients);
     }
 
     @Bean
@@ -91,8 +103,10 @@ public class AuthorizationServerConfig {
             if (OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
                 context.getClaims().claim("authorities", context.getPrincipal().getAuthorities().stream()
                     .map(GrantedAuthority::getAuthority)
-                    .filter(authority -> authority.startsWith("ROLE_")).toList());
-                context.getClaims().audience(List.of(context.getRegisteredClient().getClientId()));
+                    .filter(authority -> authority.startsWith("ROLE_"))
+                    .collect(Collectors.toCollection(ArrayList::new)));
+                context.getClaims().audience(new ArrayList<>(List.of(context.getRegisteredClient().getClientId())));
+                context.getClaims().claim("scope", new ArrayList<>(context.getAuthorizedScopes()));
             }
         });
         return generator;
