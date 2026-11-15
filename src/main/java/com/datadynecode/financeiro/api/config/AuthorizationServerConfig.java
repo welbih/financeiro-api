@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 import com.datadynecode.financeiro.api.config.auth.PasswordGrantAuthenticationConverter;
 import com.datadynecode.financeiro.api.config.auth.PasswordGrantAuthenticationProvider;
 import com.datadynecode.financeiro.api.config.auth.PasswordGrantAuthenticationToken;
+import com.datadynecode.financeiro.api.config.auth.OAuth2AuthenticationFailureHandler;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,10 +29,14 @@ import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2Token;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.authorization.*;
+import org.springframework.security.oauth2.server.authorization.authentication.ClientSecretAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.client.*;
 import org.springframework.security.oauth2.server.authorization.settings.*;
 import org.springframework.security.oauth2.server.authorization.token.*;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 
 @Configuration
 public class AuthorizationServerConfig {
@@ -40,15 +45,28 @@ public class AuthorizationServerConfig {
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http,
             AuthenticationManager authenticationManager, OAuth2AuthorizationService authorizationService,
-            OAuth2TokenGenerator<? extends OAuth2Token> tokenGenerator) throws Exception {
+            OAuth2TokenGenerator<? extends OAuth2Token> tokenGenerator, PasswordEncoder passwordEncoder) throws Exception {
+        OAuth2AuthenticationFailureHandler failureHandler = new OAuth2AuthenticationFailureHandler();
         http.oauth2AuthorizationServer(server -> {
             http.securityMatcher(server.getEndpointsMatcher());
+            server.clientAuthentication(client -> client
+                .authenticationProviders(providers -> providers.forEach(provider -> {
+                    if (provider instanceof ClientSecretAuthenticationProvider secretProvider) {
+                        secretProvider.setPasswordEncoder(passwordEncoder);
+                    }
+                }))
+                .errorResponseHandler(failureHandler));
             server.tokenEndpoint(endpoint -> endpoint
+                .errorResponseHandler(failureHandler)
                 .accessTokenRequestConverter(new PasswordGrantAuthenticationConverter())
                 .authenticationProvider(new PasswordGrantAuthenticationProvider(
                     authenticationManager, authorizationService, tokenGenerator)));
         });
         http.cors(Customizer.withDefaults())
+            .exceptionHandling(exceptions -> exceptions.defaultAuthenticationEntryPointFor(
+                (request, response, exception) -> failureHandler.onAuthenticationFailure(request, response,
+                    new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_CLIENT)),
+                PathPatternRequestMatcher.withDefaults().matcher("/oauth2/token")))
             .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated());
         return http.build();
     }

@@ -1,5 +1,23 @@
 # Autenticacao
 
+## Diagnostico de invalid_client
+
+Falhas OAuth retornam o codigo de erro publico e um identificador no header
+`X-Auth-Error-Id`. Pesquise o mesmo identificador nos logs do servico da API
+no Railway: `OAuth2 authentication rejected: reference=... reason=...`.
+Os logs registram apenas categorias fixas, sem usuario, senha, token,
+cabecalho Authorization ou descricao livre da excecao.
+
+- `CLIENT_ID_NAO_ENCONTRADO`: o identificador recebido nao corresponde ao cliente registrado.
+- `CLIENT_SECRET_NAO_CONFERE`: o cliente existe, mas o segredo recebido nao confere.
+- `BASIC_AUTH_AUSENTE_OU_INCORRETO`: nao chegou um cabecalho com o esquema Basic.
+- `METODO_CLIENTE_NAO_PERMITIDO`: o metodo de autenticacao do cliente nao esta habilitado.
+- `REQUISICAO_OU_BASIC_AUTH_MALFORMADO`: formato de credenciais ou parametros invalido.
+- `AUTHORIZATION_DUPLICADO`: chegaram varios cabecalhos Authorization.
+
+O PasswordEncoder usado para conferir o segredo do cliente e configurado
+explicitamente com o mesmo BCrypt usado ao registrar o cliente.
+
 ## Cadastro de usuarios
 
 `POST /usuarios` esta temporariamente publico, sem exigir token ou role.
