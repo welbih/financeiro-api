@@ -1,5 +1,147 @@
 # Autenticacao
 
+## Logout
+
+Envie `POST /auth/logout`, sem corpo, com `Authorization: Bearer <access_token>`.
+Nao use Basic Auth nesse endpoint. Retorna `204 No Content` e invalida somente
+o token apresentado, mantendo o registro da autorizacao para consulta.
+Outras sessoes do mesmo usuario continuam ativas. Um novo login gera outro token.
+
+Requisicoes seguintes com o token revogado retornam `401`, inclusive repetir
+o logout com esse token. Tokens ausentes, invalidos ou expirados tambem retornam
+`401`. O corpo da requisicao nao e usado para escolher qual token revogar.
+Apos o sucesso, o cliente deve remover o token de seu armazenamento.
+
+Alem da assinatura, emissor, audiencia e expiracao, o Resource Server consulta
+a autorizacao a cada validacao de token e rejeita autorizacoes inexistentes ou
+inativas. A revogacao pelo endpoint OAuth2 `/oauth2/revoke` tambem e respeitada.
+Em producao, essa consulta usa PostgreSQL: revogacoes sobrevivem a reinicios e
+sao compartilhadas entre replicas. A migration V8 adiciona indice para a busca
+por access token. Em `dev`, a autorizacao usa o armazenamento em memoria.
+Essa verificacao acrescenta acesso ao armazenamento de autorizacoes nas
+requisicoes autenticadas; falhas de armazenamento nao liberam acesso.
+
+## Categorias
+
+Todas as rotas exigem Bearer Token e usam o usuario do JWT:
+
+| Metodo | Rota | Retorno |
+| --- | --- | --- |
+| POST | /categorias | 201 com a categoria criada |
+| GET | /categorias?page=0&size=20 | 200 com pagina das categorias do usuario |
+| GET | /categorias/{id} | 200 com uma categoria do usuario |
+| PUT | /categorias/{id} | 200 com a categoria atualizada |
+| DELETE | /categorias/{id} | 204 quando a categoria nao esta em uso |
+
+JSON de cadastro/atualizacao:
+
+```json
+{
+  "nome": "Alimentacao",
+  "tipoLancamento": "DESPESA"
+}
+```
+
+Tipo aceita `DESPESA` ou `RECEITA`. Nome e obrigatorio, limitado a 100
+caracteres e salvo sem espacos nas extremidades. Nomes duplicados por usuario
+retornam `409`, ignorando diferencas de maiusculas/minusculas, mesmo quando o
+tipo e diferente. Usuarios diferentes podem usar o mesmo nome. A migration
+tambem cria um indice unico no PostgreSQL para proteger requisicoes concorrentes.
+
+A listagem aceita `tipoLancamento=DESPESA` ou `tipoLancamento=RECEITA`,
+pagina inicial zero e tamanho de 1 a 100, ordenada por nome e ID. A resposta
+tem `content`, `page`, `size`, `totalElements` e `totalPages`. O objeto da
+categoria inclui `id`, `nome`, `tipoLancamento` e `usuarioId`, sem entidade Usuario.
+
+IDs inexistentes ou de outro usuario retornam `404`. Categoria em uso nao
+pode ser excluida nem ter seu tipo alterado (`409`), mas pode ser renomeada.
+Excluir lancamento nunca exclui a categoria; excluir categoria nunca exclui
+lancamentos. Nao ha cascata de remocao nessas associacoes.
+
+Categoria e opcional no cadastro e na atualizacao de lancamentos: omita
+`categoriaId` ou envie `null` para deixar sem categoria. No PUT, isso tambem
+remove a associacao anterior, sem excluir a categoria.
+Quando informado, o ID deve ser positivo e a categoria deve pertencer ao proprio
+usuario e ter o mesmo tipo do lancamento.
+ID invalido ou tipo incompativel retorna `400`; categoria inexistente
+ou de outro usuario retorna `404`. A resposta do lancamento inclui `categoriaId`.
+
+A migration V7 preserva lancamentos existentes: cria categorias de transicao
+por usuario e tipo, chamadas `Sem categoria (despesa)` e `Sem categoria (receita)`,
+somente quando ha registros anteriores, e associa esses registros. A migration
+V9 torna a coluna opcional sem remover categorias ou associacoes existentes.
+A chave estrangeira composta valida categoria, usuario e tipo quando ha categoria
+no PostgreSQL, com remocao restrita. Novos usuarios criam suas categorias pelo CRUD.
+
+## Resumo mensal de lancamentos
+
+`GET /lancamentos/resumo-mensal?mes=2026-12` exige Bearer Token e retorna:
+`mes`, `totalDespesas`, `totalReceitas`, `diferenca` e `lancamentos`.
+
+O parametro `mes` e obrigatorio no formato `AAAA-MM`, incluindo o ano. O mes
+e determinado por `dataPrevisaoPagamento`, quando informada; caso contrario,
+usa `dataVencimento`. A data de pagamento efetivo nao altera esse agrupamento.
+Inclui lancamentos pagos e pendentes do usuario autenticado, sem paginacao,
+ordenados pela data usada no agrupamento e ID. `diferenca = totalReceitas - totalDespesas` e
+pode ser negativa. As somas usam BigDecimal, sem conversao para ponto flutuante.
+Totais e registros sao calculados a partir da mesma consulta filtrada no banco.
+
+Sem registros, retorna `200` com totais `0.00` e `lancamentos: []`.
+Mes ausente ou invalido retorna `400`; ausencia de token retorna `401`.
+
+## Listagem, atualizacao e remocao de lancamentos
+
+Todas as rotas exigem Bearer Token e consultam apenas registros do usuario
+autenticado, inclusive quando ele possui `ROLE_ADMIN`:
+
+| Metodo | Rota | Retorno |
+| --- | --- | --- |
+| GET | /lancamentos?page=0&size=20 | 200 com pagina dos proprios lancamentos |
+| PUT | /lancamentos/{id} | 200 com o lancamento atualizado |
+| DELETE | /lancamentos/{id} | 204 sem corpo |
+
+A listagem tem `content`, `page`, `size`, `totalElements` e `totalPages`.
+Paginas comecam em zero, `size` vai de 1 a 100 e a ordenacao e por vencimento
+e ID, ambos crescentes. Sem registros, retorna pagina vazia com `200`.
+
+O PUT usa o mesmo JSON do cadastro e substitui todos os campos editaveis;
+envie os campos obrigatorios. Datas opcionais omitidas sao removidas e
+`pago` omitido assume `false`. E possivel corrigir a data de um registro pago
+ou reabri-lo enviando `pago=false` e `dataPagamento=null`. O proprietario
+permanece o mesmo; usuario ou usuarioId enviados sao ignorados.
+
+Atualizacao e remocao retornam `404` tanto para IDs inexistentes quanto para
+registros de outro usuario. IDs invalidos, paginacao invalida ou dados de
+atualizacao inconsistentes retornam `400`. Sem token, retornam `401`.
+
+## Cadastro de lancamentos
+
+`POST /lancamentos` exige Bearer Token valido e usuario cadastrado no banco.
+O proprietario e obtido pelo email do claim `sub` do JWT. Nao envie usuario
+no JSON: `usuario` e `usuarioId`, se presentes, sao ignorados.
+
+```json
+{
+  "tipoLancamento": "DESPESA",
+  "descricao": "Conta de energia",
+  "valor": 150.25,
+  "pago": false,
+  "dataVencimento": "2026-12-10",
+  "dataPrevisaoPagamento": "2026-12-09",
+  "dataPagamento": null,
+  "categoriaId": 1
+}
+```
+
+O retorno `201` inclui o ID do lancamento e `usuarioId`, sem expor a entidade
+Usuario. O tipo aceita `DESPESA` ou `RECEITA`, o valor deve ser positivo, com
+ate duas casas decimais, a descricao e limitada a 500 caracteres e o
+vencimento e obrigatorio. Datas usam `AAAA-MM-DD`.
+Se `pago` for omitido ou nulo, assume `false`. Quando `pago=true`, informe
+`dataPagamento`; quando `false`, deixe essa data nula ou omitida. A previsao
+e opcional. Entrada inconsistente retorna `400`; ausencia de token ou usuario
+do token inexistente no banco retorna `401`. Nao e exigida `ROLE_ADMIN`.
+
 ## Diagnostico de invalid_client
 
 Falhas OAuth retornam o codigo de erro publico e um identificador no header
@@ -89,13 +231,14 @@ deixam de ser validos ao reiniciar.
 
 Fora de `dev`, configure tambem `JWT_JWK` com uma chave RSA privada persistente
 em JSON JWK, de pelo menos 2048 bits, contendo `kid`. A chave nao e versionada.
-O Resource Server verifica assinatura, emissor, audiencia e validade temporal.
+O Resource Server verifica assinatura, emissor, audiencia, validade temporal
+e se a autorizacao do token permanece ativa.
 
 O cliente e definido pelas variaveis de ambiente. Em `dev`, os registros de
 autorizacao ficam em memoria; fora de `dev`, sao persistidos via JDBC na tabela
-`oauth2_authorization`. Nao ha refresh token neste fluxo. JWTs ja emitidos
-continuam validos ate expirarem, mesmo apos revogacao no Authorization Server;
-revogacao imediata no Resource Server exige configuracao adicional.
+`oauth2_authorization`. Nao ha refresh token neste fluxo. Autorizacoes revogadas
+pelo logout ou pelo Authorization Server sao rejeitadas na proxima validacao
+do token pelo Resource Server.
 
 O profile padrao e `prod`, com migrations e sem seed. Apenas `dev` carrega
 `.env` e recria as tabelas e seeds. Consulte `DEPLOY.md` para publicar no Railway.

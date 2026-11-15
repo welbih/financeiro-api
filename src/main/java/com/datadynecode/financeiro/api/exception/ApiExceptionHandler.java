@@ -9,6 +9,30 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(TokenInativoException.class)
+    public ProblemDetail tokenInativo(TokenInativoException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage());
+    }
+
+    @ExceptionHandler(CategoriaNaoEncontradaException.class)
+    public ProblemDetail categoriaNaoEncontrada(CategoriaNaoEncontradaException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
+
+    @ExceptionHandler(CategoriaEmConflitoException.class)
+    public ProblemDetail categoriaEmConflito(CategoriaEmConflitoException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+    }
+    @ExceptionHandler(LancamentoNaoEncontradoException.class)
+    public ProblemDetail lancamentoNaoEncontrado(LancamentoNaoEncontradoException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
+
+    @ExceptionHandler(UsuarioAutenticadoNaoEncontradoException.class)
+    public ProblemDetail usuarioAutenticadoNaoEncontrado(UsuarioAutenticadoNaoEncontradoException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage());
+    }
+
     @ExceptionHandler(EmailJaCadastradoException.class)
     public ProblemDetail emailJaCadastrado(EmailJaCadastradoException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
@@ -23,7 +47,7 @@ public class ApiExceptionHandler {
     public ProblemDetail validacao(MethodArgumentNotValidException exception) {
         // Nao inclui valores rejeitados: podem conter a senha do usuario.
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
-            "Dados invalidos: verifique nome, sobrenome, email, senha e roles");
+            "Dados invalidos: verifique os campos obrigatorios e os formatos informados");
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

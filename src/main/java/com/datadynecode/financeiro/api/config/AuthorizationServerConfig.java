@@ -125,6 +125,10 @@ public class AuthorizationServerConfig {
                     .collect(Collectors.toCollection(ArrayList::new)));
                 context.getClaims().audience(new ArrayList<>(List.of(context.getRegisteredClient().getClientId())));
                 context.getClaims().claim("scope", new ArrayList<>(context.getAuthorizedScopes()));
+                if (context.getPrincipal().getPrincipal() instanceof com.datadynecode.financeiro.api.model.Usuario usuario) {
+                    context.getClaims().claim("nome", usuario.getNome());
+                    context.getClaims().claim("sobrenome", usuario.getSobrenome());
+                }
             }
         });
         return generator;
