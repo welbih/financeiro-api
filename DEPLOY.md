@@ -112,7 +112,9 @@ No psql, configure as variaveis e carregue o script:
 - Definir politicas de recuperacao de senha, bloqueio de contas, auditoria,
   revogacao de JWT e rotacao de chaves; ainda nao estao implementadas.
 - Implementar os casos de uso financeiros, endpoints e autorizacao por recurso:
-  atualmente ha entidades de usuario/role e infraestrutura de autenticacao.
+  atualmente ha autenticacao e cadastro de usuarios temporariamente publico.
+- Restringir novamente `POST /usuarios` antes de disponibilizar cadastro de
+  permissoes administrativas em uma API publica.
 
 JWTs sao validados localmente. Persistir uma autorizacao ou revoga-la no servidor
 OAuth nao invalida imediatamente um JWT ja emitido no Resource Server. Use
