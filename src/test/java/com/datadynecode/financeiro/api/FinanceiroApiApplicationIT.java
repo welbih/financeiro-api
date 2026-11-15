@@ -90,6 +90,22 @@ class FinanceiroApiApplicationIT {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM oauth2_authorization", Integer.class));
         assertNotNull(authorizations.findByToken(token, OAuth2TokenType.ACCESS_TOKEN));
 
+        HttpRequest cadastro = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/usuarios"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString("""
+                {"nome":"Maria","sobrenome":"Silva","email":"maria@example.com",
+                 "senha":"SenhaForte123!","roles":["ROLE_ADMIN"]}
+                """)).build();
+        var created = client.send(cadastro, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, created.statusCode(), created.body());
+        var json = JsonMapper.builder().build().readTree(created.body());
+        assertFalse(json.has("senha"));
+        assertFalse(json.has("password"));
+        var maria = usuarios.findByEmail("maria@example.com").orElseThrow();
+        assertTrue(encoder.matches("SenhaForte123!", maria.getSenha()));
+        assertTrue(maria.getRoles().contemPorNome("ROLE_ADMIN"));
+        assertEquals(409, client.send(cadastro, HttpResponse.BodyHandlers.ofString()).statusCode());
+
         var health = client.send(HttpRequest.newBuilder(URI.create(
             "http://localhost:" + port + "/actuator/health/readiness")).GET().build(), HttpResponse.BodyHandlers.ofString());
         assertEquals(200, health.statusCode());

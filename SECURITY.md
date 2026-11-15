@@ -1,5 +1,28 @@
 # Autenticacao
 
+## Cadastro de usuarios
+
+`POST /usuarios` esta temporariamente publico, sem exigir token ou role.
+Envie JSON com nome, sobrenome, email, senha original e nomes das permissoes:
+
+```json
+{
+  "nome": "Maria",
+  "sobrenome": "Silva",
+  "email": "maria@example.com",
+  "senha": "UmaSenhaForte123!",
+  "roles": ["ROLE_ADMIN"]
+}
+```
+
+As roles precisam existir no banco; o endpoint nao cria novas permissoes.
+A senha deve ter ao menos 12 caracteres e no maximo 72 bytes UTF-8, e e salva
+como hash BCrypt. O retorno `201` inclui id, nome, sobrenome, email e roles,
+sem senha ou hash. Email duplicado retorna `409`; entrada invalida ou role
+inexistente retorna `400`. Enquanto a rota estiver publica, qualquer pessoa
+pode cadastrar usuarios com as roles existentes, inclusive `ROLE_ADMIN`.
+Use No Auth no Postman; um Bearer Token invalido enviado pode retornar `401`.
+
 A API atua como Authorization Server e Resource Server. O login direto usa
 um grant personalizado, integrado ao endpoint OAuth2 do Spring Security.
 
@@ -8,6 +31,13 @@ um grant personalizado, integrado ao endpoint OAuth2 do Spring Security.
 Envie `POST http://localhost:8080/oauth2/token`.
 
 Em Authorization, selecione Basic Auth e informe `CLIENT_ID` e `CLIENT_SECRET`.
+Para uso direto com Basic Auth no Postman, prefira segredos Base64URL (sem `+`,
+`/` e `=`). O Spring decodifica as credenciais segundo o formato OAuth2:
+um `+` literal enviado sem codificacao form e interpretado como espaco,
+resultando em `invalid_client`. Para manter um segredo com caracteres especiais,
+codifique cada credencial como application/x-www-form-urlencoded antes de
+montar o Base64 de `client_id:client_secret`. Nao altere o valor original no
+Railway para a versao codificada.
 Em Body, selecione `x-www-form-urlencoded`:
 
 | Campo | Valor |
