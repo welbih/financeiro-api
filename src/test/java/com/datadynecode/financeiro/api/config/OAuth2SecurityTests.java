@@ -89,7 +89,27 @@ class OAuth2SecurityTests {
         mvc.perform(post("/oauth2/token").with(httpBasic("test-client", "errado"))
                 .param("grant_type", PasswordGrantAuthenticationToken.GRANT_TYPE.getValue())
                 .param("username", "admin@financeiro.local").param("password", "senha-teste"))
-            .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error").value("invalid_client"));
+            .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error").value("invalid_client"))
+            .andExpect(header().exists("X-Auth-Error-Id"))
+            .andExpect(jsonPath("$.error_description").doesNotExist());
+    }
+
+    @Test
+    void diagnosticaClienteDesconhecido() throws Exception {
+        mvc.perform(post("/oauth2/token").with(httpBasic("cliente-ausente", "segredo"))
+                .param("grant_type", PasswordGrantAuthenticationToken.GRANT_TYPE.getValue())
+                .param("username", "admin@financeiro.local").param("password", "senha-teste"))
+            .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error").value("invalid_client"))
+            .andExpect(header().exists("X-Auth-Error-Id"));
+    }
+
+    @Test
+    void diagnosticaBasicAusente() throws Exception {
+        mvc.perform(post("/oauth2/token")
+                .param("grant_type", PasswordGrantAuthenticationToken.GRANT_TYPE.getValue())
+                .param("username", "admin@financeiro.local").param("password", "senha-teste"))
+            .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error").value("invalid_client"))
+            .andExpect(header().exists("X-Auth-Error-Id"));
     }
 
     @Test
