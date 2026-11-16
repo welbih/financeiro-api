@@ -3,6 +3,7 @@ package com.datadynecode.financeiro.api.controller;
 import java.time.YearMonth;
 
 import com.datadynecode.financeiro.api.dto.LancamentoRequest;
+import com.datadynecode.financeiro.api.dto.PagamentoLancamentoRequest;
 import com.datadynecode.financeiro.api.dto.LancamentoResponse;
 import com.datadynecode.financeiro.api.dto.LancamentoPageResponse;
 import com.datadynecode.financeiro.api.dto.ResumoMensalLancamentosResponse;
@@ -17,6 +18,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -57,6 +59,12 @@ public class LancamentoController {
     public ResumoMensalLancamentosResponse resumirMes(@AuthenticationPrincipal Jwt jwt,
             @RequestParam @DateTimeFormat(pattern = "uuuu-MM") YearMonth mes) {
         return lancamentoService.resumirMes(jwt.getSubject(), mes);
+    }
+
+    @PatchMapping("/{id}/pagar")
+    public LancamentoResponse pagar(@PathVariable @Positive Long id,
+            @RequestBody(required = false) PagamentoLancamentoRequest request, @AuthenticationPrincipal Jwt jwt) {
+        return lancamentoService.pagar(id, request == null ? null : request.data(), jwt.getSubject());
     }
 
     @DeleteMapping("/{id}")

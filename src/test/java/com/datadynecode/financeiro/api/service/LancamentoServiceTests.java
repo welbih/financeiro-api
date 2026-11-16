@@ -55,6 +55,27 @@ class LancamentoServiceTests {
     }
 
     @Test
+    void pagaComDataInformadaSemAlterarOutrosDados() {
+        Lancamento lancamento = existente();
+        when(lancamentos.findByIdAndUsuarioId(20L, 10L)).thenReturn(Optional.of(lancamento));
+        var resposta = service.pagar(20L, vencimento, "dono@example.com");
+        assertTrue(resposta.pago());
+        assertEquals(vencimento, resposta.dataPagamento());
+        assertEquals(lancamento.getValor(), resposta.valor());
+        verify(lancamentos).saveAndFlush(lancamento);
+    }
+
+    @Test
+    void naoPagaNovamenteNemAcessaLancamentoAlheio() {
+        Lancamento lancamento = existente();
+        lancamento.pagarEm(vencimento);
+        when(lancamentos.findByIdAndUsuarioId(20L, 10L)).thenReturn(Optional.of(lancamento));
+        assertThrows(CadastroInvalidoException.class, () -> service.pagar(20L, null, "dono@example.com"));
+        assertThrows(LancamentoNaoEncontradoException.class, () -> service.pagar(99L, null, "dono@example.com"));
+        verify(lancamentos, never()).saveAndFlush(any());
+    }
+
+    @Test
     void cadastraPendenteParaUsuarioAutenticado() {
         var response = service.cadastrar(request(null, null), "dono@example.com");
         ArgumentCaptor<Lancamento> captor = ArgumentCaptor.forClass(Lancamento.class);

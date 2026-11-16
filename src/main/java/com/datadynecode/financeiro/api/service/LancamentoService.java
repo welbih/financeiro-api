@@ -2,6 +2,8 @@ package com.datadynecode.financeiro.api.service;
 
 import java.math.BigDecimal;
 import java.time.YearMonth;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 import com.datadynecode.financeiro.api.dto.LancamentoRequest;
@@ -78,6 +80,16 @@ public class LancamentoService {
         List<LancamentoResponse> registros = lancamentos.stream().map(LancamentoMapper::toResponse).toList();
         return new ResumoMensalLancamentosResponse(mes.toString(), despesas, receitas,
             receitas.subtract(despesas), registros);
+    }
+
+    @Transactional
+    public LancamentoResponse pagar(Long id, LocalDate data, String emailAutenticado) {
+        Lancamento lancamento = buscarLancamento(id, emailAutenticado);
+        if (lancamento.isPago()) {
+            throw new CadastroInvalidoException("Lancamento ja esta pago");
+        }
+        lancamento.pagarEm(data == null ? LocalDate.now(ZoneId.of("America/Sao_Paulo")) : data);
+        return LancamentoMapper.toResponse(lancamentoRepository.saveAndFlush(lancamento));
     }
 
     @Transactional

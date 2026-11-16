@@ -123,6 +123,7 @@ class FinanceiroApiApplicationIT {
         validarCrudCategorias(client, token, usuario, maria);
         validarCategoriaOpcional(client, token);
         validarPlanejamento(client, token, usuario, maria);
+        validarPagamento(client, token, usuario, maria);
 
         var health = client.send(HttpRequest.newBuilder(URI.create(
             "http://localhost:" + port + "/actuator/health/readiness")).GET().build(), HttpResponse.BodyHandlers.ofString());
@@ -180,6 +181,31 @@ class FinanceiroApiApplicationIT {
         assertEquals(500, mapper.readTree(recalculado.body()).get("saldoFinalProjetado").asInt());
         assertEquals(400, enviarJson(client, token, "GET", base + "/resumo?mesFechamento=2090-11", null).statusCode());
         assertEquals(400, enviarJson(client, token, "GET", base + "/resumo?mesFechamento=invalido", null).statusCode());
+    }
+
+    private void validarPagamento(HttpClient client, String token, Usuario usuario, Usuario outro) throws Exception {
+        Long id = inserirParaResumo(usuario, "DESPESA", "50", "2095-01-01");
+        String url = "http://localhost:" + port + "/lancamentos/" + id + "/pagar";
+        var mapper = JsonMapper.builder().build();
+        assertEquals(400, enviarJson(client, token, "PATCH", url, "{\"data\":\"invalida\"}").statusCode());
+        var pago = enviarJson(client, token, "PATCH", url, "{\"data\":\"2026-11-16\"}");
+        assertEquals(200, pago.statusCode(), pago.body());
+        assertTrue(mapper.readTree(pago.body()).get("pago").asBoolean());
+        assertEquals("2026-11-16", mapper.readTree(pago.body()).get("dataPagamento").asString());
+        assertEquals(LocalDate.of(2026, 11, 16), jdbc.queryForObject("SELECT data_pagamento FROM lancamentos WHERE id = ?", LocalDate.class, id));
+        assertEquals(400, enviarJson(client, token, "PATCH", url, "{}").statusCode());
+        for (String body : new String[]{"{}", null, "{\"data\":null}"}) {
+            Long pendente = inserirParaResumo(usuario, "RECEITA", "50", "2095-01-01");
+            LocalDate antes = LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo"));
+            var atual = enviarJson(client, token, "PATCH", url.replace("/" + id + "/", "/" + pendente + "/"), body);
+            assertEquals(200, atual.statusCode(), atual.body());
+            LocalDate data = LocalDate.parse(mapper.readTree(atual.body()).get("dataPagamento").asString());
+            assertFalse(data.isBefore(antes));
+            assertFalse(data.isAfter(LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo"))));
+        }
+        Long alheio = inserirParaResumo(outro, "DESPESA", "50", "2095-01-01");
+        assertEquals(404, enviarJson(client, token, "PATCH", url.replace("/" + id + "/", "/" + alheio + "/"), "{}").statusCode());
+        assertEquals(401, client.send(HttpRequest.newBuilder(URI.create(url)).method("PATCH", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
     }
 
     private void validarPersistenciaLancamento(Usuario usuario) {
