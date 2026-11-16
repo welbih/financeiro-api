@@ -123,6 +123,7 @@ class FinanceiroApiApplicationIT {
         validarCrudCategorias(client, token, usuario, maria);
         validarCategoriaOpcional(client, token);
         validarPlanejamento(client, token, usuario, maria);
+        validarRecorrencias(client, token, usuario);
         validarPagamento(client, token, usuario, maria);
 
         var health = client.send(HttpRequest.newBuilder(URI.create(
@@ -208,6 +209,31 @@ class FinanceiroApiApplicationIT {
         assertEquals(401, client.send(HttpRequest.newBuilder(URI.create(url)).method("PATCH", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
     }
 
+    private void validarRecorrencias(HttpClient client, String token, Usuario usuario) throws Exception {
+        String url = "http://localhost:" + port + "/lancamentos";
+        String body = """
+            {"tipoLancamento":"DESPESA","descricao":"Recorrencia integracao","valor":85.50,
+             "dataVencimento":"2096-01-31","dataPrevisaoPagamento":"2096-02-10","quantidadeRecorrencias":2}
+            """;
+        var resposta = enviarJson(client, token, "POST", url, body);
+        assertEquals(201, resposta.statusCode(), resposta.body());
+        var registros = jdbc.queryForList("SELECT * FROM lancamentos WHERE descricao = 'Recorrencia integracao' ORDER BY data_vencimento");
+        assertEquals(3, registros.size());
+        assertEquals(java.sql.Date.valueOf("2096-02-29"), registros.get(1).get("data_vencimento"));
+        assertEquals(java.sql.Date.valueOf("2096-03-31"), registros.get(2).get("data_vencimento"));
+        assertEquals(java.sql.Date.valueOf("2096-04-10"), registros.get(2).get("data_previsao_pagamento"));
+        for (var registro : registros) {
+            assertEquals(usuario.getId(), registro.get("usuario_id"));
+            assertEquals(new BigDecimal("85.50"), registro.get("valor"));
+            assertEquals(false, registro.get("pago"));
+        }
+        for (int quantidade : new int[]{-1, 13}) {
+            assertEquals(400, enviarJson(client, token, "POST", url,
+                body.replace("\"quantidadeRecorrencias\":2", "\"quantidadeRecorrencias\":" + quantidade)).statusCode());
+        }
+        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM lancamentos WHERE descricao = 'Recorrencia integracao'", Integer.class));
+    }
+
     private void validarPersistenciaLancamento(Usuario usuario) {
         LocalDate vencimento = LocalDate.of(2026, 11, 10);
         LocalDate pagamento = LocalDate.of(2026, 11, 12);
@@ -275,7 +301,7 @@ class FinanceiroApiApplicationIT {
         assertFalse(jdbc.queryForObject("SELECT pago FROM lancamentos WHERE id = ?", Boolean.class, identificador));
 
         String pago = body.replace("\"pago\":false", "\"pago\":true")
-            .replace("\"dataPagamento\":null", "\"dataPagamento\":\"2026-12-09\"");
+            .replace("\"dataPagamento\":null", "\"dataPagamento\":\"2026-11-09\"");
         HttpRequest requestPago = HttpRequest.newBuilder(request.uri())
             .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(pago)).build();
@@ -283,7 +309,7 @@ class FinanceiroApiApplicationIT {
         assertEquals(201, responsePago.statusCode(), responsePago.body());
         var jsonPago = JsonMapper.builder().build().readTree(responsePago.body());
         assertTrue(jsonPago.get("pago").asBoolean());
-        assertEquals("2026-12-09", jsonPago.get("dataPagamento").asString());
+        assertEquals("2026-11-09", jsonPago.get("dataPagamento").asString());
 
         HttpRequest invalido = HttpRequest.newBuilder(request.uri())
             .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
@@ -319,7 +345,7 @@ class FinanceiroApiApplicationIT {
 
         String atualizado = body.replace("Internet", "Internet atualizada")
             .replace("\"pago\":false", "\"pago\":true")
-            .replace("\"dataPagamento\":null", "\"dataPagamento\":\"2026-12-09\"");
+            .replace("\"dataPagamento\":null", "\"dataPagamento\":\"2026-11-09\"");
         HttpRequest atualizacao = HttpRequest.newBuilder(URI.create(base + "/" + identificador))
             .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
             .PUT(HttpRequest.BodyPublishers.ofString(atualizado)).build();

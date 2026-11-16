@@ -11,6 +11,8 @@ Corpo opcional:
 
 Sem corpo, com `{}` ou com `{"data":null}`, registra a data atual em
 `America/Sao_Paulo`. Datas informadas devem usar o formato `yyyy-MM-dd`.
+Datas de pagamento futuras retornam 400, tanto neste endpoint quanto no cadastro
+e na atualização do lançamento. Hoje e datas passadas são aceitos.
 
 Retorna 200 com o lançamento atualizado, `pago: true` e `dataPagamento` preenchida.
 Os demais atributos são preservados. Retorna 400 para data inválida ou lançamento

@@ -42,7 +42,25 @@ public class LancamentoService {
         Lancamento lancamento = new Lancamento();
         lancamento.setUsuario(usuario);
         aplicarDados(lancamento, request);
-        return LancamentoMapper.toResponse(lancamentoRepository.saveAndFlush(lancamento));
+        lancamentoRepository.saveAndFlush(lancamento);
+        int quantidade = request.quantidadeRecorrencias() == null ? 0 : request.quantidadeRecorrencias();
+        for (int mes = 1; mes <= quantidade; mes++) {
+            Lancamento recorrente = new Lancamento();
+            recorrente.setUsuario(usuario);
+            recorrente.setCategoria(lancamento.getCategoria());
+            recorrente.setTipoLancamento(lancamento.getTipoLancamento());
+            recorrente.setDescricao(lancamento.getDescricao());
+            recorrente.setValor(lancamento.getValor());
+            recorrente.setDataVencimento(lancamento.getDataVencimento().plusMonths(mes));
+            if (lancamento.getDataPrevisaoPagamento() != null) {
+                recorrente.setDataPrevisaoPagamento(lancamento.getDataPrevisaoPagamento().plusMonths(mes));
+            }
+            if (lancamento.isPago()) {
+                recorrente.pagarEm(lancamento.getDataPagamento());
+            }
+            lancamentoRepository.save(recorrente);
+        }
+        return LancamentoMapper.toResponse(lancamento);
     }
 
     @Transactional(readOnly = true)
@@ -57,6 +75,9 @@ public class LancamentoService {
 
     @Transactional
     public LancamentoResponse atualizar(Long id, LancamentoRequest request, String emailAutenticado) {
+        if (request.quantidadeRecorrencias() != null && request.quantidadeRecorrencias() != 0) {
+            throw new CadastroInvalidoException("Recorrencias podem ser geradas somente no cadastro");
+        }
         Lancamento lancamento = buscarLancamento(id, emailAutenticado);
         aplicarDados(lancamento, request);
         return LancamentoMapper.toResponse(lancamentoRepository.saveAndFlush(lancamento));
@@ -85,6 +106,7 @@ public class LancamentoService {
     @Transactional
     public LancamentoResponse pagar(Long id, LocalDate data, String emailAutenticado) {
         Lancamento lancamento = buscarLancamento(id, emailAutenticado);
+        validarDataPagamento(data);
         if (lancamento.isPago()) {
             throw new CadastroInvalidoException("Lancamento ja esta pago");
         }
@@ -137,10 +159,17 @@ public class LancamentoService {
     }
 
     private void validarPagamento(LancamentoRequest request) {
+        validarDataPagamento(request.dataPagamento());
         boolean pago = Boolean.TRUE.equals(request.pago());
         boolean possuiDataPagamento = request.dataPagamento() != null;
         if (pago != possuiDataPagamento) {
             throw new CadastroInvalidoException("Data de pagamento deve ser informada somente quando pago for true");
+        }
+    }
+
+    private void validarDataPagamento(LocalDate data) {
+        if (data != null && data.isAfter(LocalDate.now(ZoneId.of("America/Sao_Paulo")))) {
+            throw new CadastroInvalidoException("Data de pagamento nao pode ser futura");
         }
     }
 }

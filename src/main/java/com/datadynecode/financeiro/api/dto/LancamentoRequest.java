@@ -10,6 +10,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 
 @JsonIgnoreProperties({"usuario", "usuarioId"})
 public record LancamentoRequest(
@@ -20,5 +22,6 @@ public record LancamentoRequest(
     @NotNull LocalDate dataVencimento,
     LocalDate dataPrevisaoPagamento,
     LocalDate dataPagamento,
-    @Positive Long categoriaId
+    @Positive Long categoriaId,
+    @Min(0) @Max(12) Integer quantidadeRecorrencias
 ) {}

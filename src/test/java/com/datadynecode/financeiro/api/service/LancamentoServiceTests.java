@@ -29,7 +29,7 @@ class LancamentoServiceTests {
     private final LancamentoService service = new LancamentoService(lancamentos, usuarios, categorias);
     private final Usuario usuario = new Usuario();
     private final Categoria categoria = new Categoria();
-    private final LocalDate vencimento = LocalDate.of(2026, 12, 10);
+    private final LocalDate vencimento = LocalDate.of(2026, 10, 10);
 
     @BeforeEach
     void setup() {
@@ -51,7 +51,7 @@ class LancamentoServiceTests {
 
     private LancamentoRequest request(Boolean pago, LocalDate pagamento) {
         return new LancamentoRequest(TipoLancamento.DESPESA, " Energia ", new BigDecimal("150.25"),
-            pago, vencimento, null, pagamento, 30L);
+            pago, vencimento, null, pagamento, 30L, null);
     }
 
     @Test
@@ -86,6 +86,70 @@ class LancamentoServiceTests {
         assertEquals("Energia", response.descricao());
         assertFalse(response.pago());
         assertNull(response.dataPagamento());
+    }
+
+    @Test
+    void rejeitaDataFuturaEmTodosOsFluxosSemSalvar() {
+        LocalDate futura = LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo")).plusDays(1);
+        Lancamento existente = existente();
+        assertThrows(CadastroInvalidoException.class, () -> service.cadastrar(request(true, futura), "dono@example.com"));
+        assertThrows(CadastroInvalidoException.class, () -> service.atualizar(20L, request(true, futura), "dono@example.com"));
+        assertThrows(CadastroInvalidoException.class, () -> service.pagar(20L, futura, "dono@example.com"));
+        assertFalse(existente.isPago());
+        assertNull(existente.getDataPagamento());
+        verify(lancamentos, never()).saveAndFlush(any());
+        verify(lancamentos, never()).save(any());
+    }
+
+    @Test
+    void permitePagamentoHoje() {
+        existente();
+        LocalDate hoje = LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo"));
+        assertEquals(hoje, service.pagar(20L, hoje, "dono@example.com").dataPagamento());
+    }
+
+    @Test
+    void geraMesesAPartirDasDatasOriginaisPreservandoDados() {
+        var request = new LancamentoRequest(TipoLancamento.DESPESA, "Energia", new BigDecimal("150.25"),
+            true, LocalDate.of(2028, 1, 31), LocalDate.of(2028, 2, 29), vencimento, 30L, 2);
+        service.cadastrar(request, "dono@example.com");
+        ArgumentCaptor<Lancamento> captor = ArgumentCaptor.forClass(Lancamento.class);
+        verify(lancamentos, times(2)).save(captor.capture());
+        var fevereiro = captor.getAllValues().get(0);
+        var marco = captor.getAllValues().get(1);
+        assertEquals(LocalDate.of(2028, 2, 29), fevereiro.getDataVencimento());
+        assertEquals(LocalDate.of(2028, 3, 31), marco.getDataVencimento());
+        assertEquals(LocalDate.of(2028, 3, 29), fevereiro.getDataPrevisaoPagamento());
+        assertEquals(LocalDate.of(2028, 4, 29), marco.getDataPrevisaoPagamento());
+        for (Lancamento recorrente : captor.getAllValues()) {
+            assertSame(usuario, recorrente.getUsuario());
+            assertSame(categoria, recorrente.getCategoria());
+            assertEquals(request.valor(), recorrente.getValor());
+            assertEquals(request.descricao(), recorrente.getDescricao());
+            assertTrue(recorrente.isPago());
+            assertEquals(vencimento, recorrente.getDataPagamento());
+        }
+    }
+
+    @Test
+    void recorrenciaSemPrevisaoPermaneceSemPrevisao() {
+        var request = new LancamentoRequest(TipoLancamento.RECEITA, "Salario", new BigDecimal("1000"),
+            false, LocalDate.of(2027, 1, 31), null, null, null, 1);
+        service.cadastrar(request, "dono@example.com");
+        ArgumentCaptor<Lancamento> captor = ArgumentCaptor.forClass(Lancamento.class);
+        verify(lancamentos).save(captor.capture());
+        assertEquals(LocalDate.of(2027, 2, 28), captor.getValue().getDataVencimento());
+        assertNull(captor.getValue().getDataPrevisaoPagamento());
+        assertFalse(captor.getValue().isPago());
+        assertNull(captor.getValue().getDataPagamento());
+    }
+
+    @Test
+    void naoGeraRecorrenciasNaAtualizacao() {
+        var request = new LancamentoRequest(TipoLancamento.DESPESA, "Energia", new BigDecimal("150.25"),
+            false, vencimento, null, null, 30L, 2);
+        assertThrows(CadastroInvalidoException.class, () -> service.atualizar(20L, request, "dono@example.com"));
+        verifyNoInteractions(lancamentos);
     }
 
     @Test
@@ -135,7 +199,7 @@ class LancamentoServiceTests {
     @Test
     void cadastraSemCategoria() {
         var request = new LancamentoRequest(TipoLancamento.DESPESA, "Energia", new BigDecimal("150.25"),
-            false, vencimento, null, null, null);
+            false, vencimento, null, null, null, null);
         var response = service.cadastrar(request, "dono@example.com");
         assertNull(response.categoriaId());
         verifyNoInteractions(categorias);
@@ -145,7 +209,7 @@ class LancamentoServiceTests {
     void atualizacaoPermiteRemoverCategoria() {
         Lancamento lancamento = existente();
         var request = new LancamentoRequest(TipoLancamento.DESPESA, "Energia", new BigDecimal("150.25"),
-            false, vencimento, null, null, null);
+            false, vencimento, null, null, null, null);
         var response = service.atualizar(20L, request, "dono@example.com");
         assertNull(response.categoriaId());
         assertNull(lancamento.getCategoria());
