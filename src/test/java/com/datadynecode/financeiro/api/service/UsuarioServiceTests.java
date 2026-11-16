@@ -1,6 +1,6 @@
 package com.datadynecode.financeiro.api.service;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import com.datadynecode.financeiro.api.dto.UsuarioRequest;
@@ -24,14 +24,14 @@ class UsuarioServiceTests {
     private final UsuarioService service = new UsuarioService(usuarios, roles, encoder);
 
     private UsuarioRequest request(String senha) {
-        return new UsuarioRequest("Maria", "Silva", "maria@example.com", senha, Set.of("ROLE_ADMIN"));
+        return new UsuarioRequest("Maria", "Silva", "maria@example.com", senha);
     }
 
     @Test
     void cadastraComHashERoleExistente() {
         Role role = new Role();
-        role.setAuthority("ROLE_ADMIN");
-        when(roles.findByAuthorityIn(Set.of("ROLE_ADMIN"))).thenReturn(List.of(role));
+        role.setAuthority("ROLE_USER");
+        when(roles.findByAuthority("ROLE_USER")).thenReturn(Optional.of(role));
         when(encoder.encode("SenhaForte123!")).thenReturn("hash-bcrypt");
         when(usuarios.saveAndFlush(any())).thenAnswer(invocation -> {
             Usuario usuario = invocation.getArgument(0);
@@ -44,9 +44,9 @@ class UsuarioServiceTests {
         ArgumentCaptor<Usuario> captor = ArgumentCaptor.forClass(Usuario.class);
         verify(usuarios).saveAndFlush(captor.capture());
         assertEquals("hash-bcrypt", captor.getValue().getSenha());
-        assertTrue(captor.getValue().getRoles().contemPorNome("ROLE_ADMIN"));
+        assertTrue(captor.getValue().getRoles().contemPorNome("ROLE_USER"));
         assertEquals(10L, response.id());
-        assertEquals(Set.of("ROLE_ADMIN"), response.roles());
+        assertEquals(Set.of("ROLE_USER"), response.roles());
     }
 
     @Test
@@ -59,8 +59,8 @@ class UsuarioServiceTests {
 
     @Test
     void rejeitaRoleInexistente() {
-        when(roles.findByAuthorityIn(any())).thenReturn(List.of());
-        assertThrows(CadastroInvalidoException.class, () -> service.cadastrar(request("SenhaForte123!")));
+        when(roles.findByAuthority("ROLE_USER")).thenReturn(Optional.empty());
+        assertThrows(IllegalStateException.class, () -> service.cadastrar(request("SenhaForte123!")));
         verify(usuarios, never()).saveAndFlush(any());
         verifyNoInteractions(encoder);
     }

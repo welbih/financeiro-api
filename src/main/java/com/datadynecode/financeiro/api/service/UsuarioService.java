@@ -1,7 +1,6 @@
 package com.datadynecode.financeiro.api.service;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 import com.datadynecode.financeiro.api.dto.UsuarioRequest;
 import com.datadynecode.financeiro.api.dto.UsuarioResponse;
@@ -32,16 +31,14 @@ public class UsuarioService {
         if (request.senha().getBytes(StandardCharsets.UTF_8).length > 72) {
             throw new CadastroInvalidoException("Senha deve ter no maximo 72 bytes em UTF-8");
         }
-        List<Role> roles = roleRepository.findByAuthorityIn(request.roles());
-        if (roles.size() != request.roles().size()) {
-            throw new CadastroInvalidoException("Uma ou mais permissoes nao estao cadastradas");
-        }
+        Role role = roleRepository.findByAuthority("ROLE_USER")
+            .orElseThrow(() -> new IllegalStateException("ROLE_USER nao cadastrada no banco"));
         Usuario usuario = new Usuario();
         usuario.setNome(request.nome());
         usuario.setSobrenome(request.sobrenome());
         usuario.setEmail(request.email());
         usuario.setSenha(passwordEncoder.encode(request.senha()));
-        roles.forEach(usuario.getRoles()::adicionar);
+        usuario.getRoles().adicionar(role);
         return UsuarioMapper.toResponse(usuarioRepository.saveAndFlush(usuario));
     }
 }

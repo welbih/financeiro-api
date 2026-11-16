@@ -178,8 +178,17 @@ class OAuth2SecurityTests {
 
     private static final String CADASTRO = """
         {"nome":"Maria","sobrenome":"Silva","email":"maria@example.com",
-         "senha":"SenhaForte123!","roles":["ROLE_ADMIN"]}
+         "senha":"SenhaForte123!"}
         """;
+
+    @Test
+    void cadastroRejeitaRolesInformadasPeloCliente() throws Exception {
+        for (String roles : new String[]{"[\"ROLE_ADMIN\"]", "[\"ROLE_USER\"]", "[]", "null"}) {
+            mvc.perform(post("/usuarios").contentType("application/json")
+                    .content(CADASTRO.replace("\"senha\":", "\"roles\":" + roles + ",\"senha\":")))
+                .andExpect(status().isBadRequest());
+        }
+    }
 
     private static final String CADASTRO_LANCAMENTO = """
         {"tipoLancamento":"DESPESA","descricao":"Energia","valor":150.25,
@@ -422,12 +431,12 @@ class OAuth2SecurityTests {
     void administradorCadastraSemExporSenha() throws Exception {
         var service = context.getBean(UsuarioService.class);
         org.mockito.Mockito.when(service.cadastrar(org.mockito.ArgumentMatchers.any()))
-            .thenReturn(new UsuarioResponse(10L, "Maria", "Silva", "maria@example.com", java.util.Set.of("ROLE_ADMIN")));
+            .thenReturn(new UsuarioResponse(10L, "Maria", "Silva", "maria@example.com", java.util.Set.of("ROLE_USER")));
         mvc.perform(post("/usuarios").with(jwt().authorities(
                 new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")))
                 .contentType("application/json").content(CADASTRO))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.id").value(10))
-            .andExpect(jsonPath("$.roles[0]").value("ROLE_ADMIN"))
+            .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"))
             .andExpect(jsonPath("$.senha").doesNotExist()).andExpect(jsonPath("$.password").doesNotExist());
     }
 

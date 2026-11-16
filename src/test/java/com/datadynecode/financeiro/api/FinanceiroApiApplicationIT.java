@@ -77,6 +77,7 @@ class FinanceiroApiApplicationIT {
         assertEquals(0, usuarios.count());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class));
 
+        jdbc.update("INSERT INTO roles(authority) VALUES ('ROLE_USER')");
         Long roleId = jdbc.queryForObject("INSERT INTO roles(authority) VALUES ('ROLE_ADMIN') RETURNING id", Long.class);
         Usuario usuario = new Usuario();
         usuario.setNome("Integration");
@@ -106,7 +107,7 @@ class FinanceiroApiApplicationIT {
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString("""
                 {"nome":"Maria","sobrenome":"Silva","email":"maria@example.com",
-                 "senha":"SenhaForte123!","roles":["ROLE_ADMIN"]}
+                 "senha":"SenhaForte123!"}
                 """)).build();
         var created = client.send(cadastro, HttpResponse.BodyHandlers.ofString());
         assertEquals(201, created.statusCode(), created.body());
@@ -115,7 +116,8 @@ class FinanceiroApiApplicationIT {
         assertFalse(json.has("password"));
         var maria = usuarios.findByEmail("maria@example.com").orElseThrow();
         assertTrue(encoder.matches("SenhaForte123!", maria.getSenha()));
-        assertTrue(maria.getRoles().contemPorNome("ROLE_ADMIN"));
+        assertTrue(maria.getRoles().contemPorNome("ROLE_USER"));
+        assertFalse(maria.getRoles().contemPorNome("ROLE_ADMIN"));
         assertEquals(409, client.send(cadastro, HttpResponse.BodyHandlers.ofString()).statusCode());
 
         validarPersistenciaLancamento(usuario);
