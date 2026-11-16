@@ -63,7 +63,7 @@ public class LancamentoService {
     @Transactional(readOnly = true)
     public ResumoMensalLancamentosResponse resumirMes(String emailAutenticado, YearMonth mes) {
         Usuario usuario = buscarUsuario(emailAutenticado);
-        List<Lancamento> lancamentos = lancamentoRepository.findParaResumoMensal(
+        List<Lancamento> lancamentos = lancamentoRepository.findPorPeriodo(
             usuario.getId(), mes.atDay(1), mes.atEndOfMonth());
         BigDecimal despesas = BigDecimal.ZERO.setScale(2);
         BigDecimal receitas = BigDecimal.ZERO.setScale(2);

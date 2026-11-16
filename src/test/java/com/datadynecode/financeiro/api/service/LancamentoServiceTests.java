@@ -219,7 +219,7 @@ class LancamentoServiceTests {
         despesaPaga.pagarEm(mes.atDay(1));
         Lancamento despesaPendente = lancamentoResumo(22L, TipoLancamento.DESPESA, "50.20", mes.atDay(15));
         Lancamento receita = lancamentoResumo(23L, TipoLancamento.RECEITA, "200.35", mes.atEndOfMonth());
-        when(lancamentos.findParaResumoMensal(10L, mes.atDay(1), mes.atEndOfMonth()))
+        when(lancamentos.findPorPeriodo(10L, mes.atDay(1), mes.atEndOfMonth()))
             .thenReturn(java.util.List.of(despesaPaga, despesaPendente, receita));
 
         var response = service.resumirMes("dono@example.com", mes);
@@ -229,14 +229,14 @@ class LancamentoServiceTests {
         assertEquals(new BigDecimal("200.35"), response.totalReceitas());
         assertEquals(new BigDecimal("50.05"), response.diferenca());
         assertEquals(3, response.lancamentos().size());
-        verify(lancamentos).findParaResumoMensal(10L,
+        verify(lancamentos).findPorPeriodo(10L,
             LocalDate.of(2028, 2, 1), LocalDate.of(2028, 2, 29));
     }
 
     @Test
     void resumoSemLancamentosRetornaTotaisZeradosEListaVazia() {
         java.time.YearMonth mes = java.time.YearMonth.of(2026, 12);
-        when(lancamentos.findParaResumoMensal(any(), any(), any()))
+        when(lancamentos.findPorPeriodo(any(), any(), any()))
             .thenReturn(java.util.List.of());
         var response = service.resumirMes("dono@example.com", mes);
         assertEquals(new BigDecimal("0.00"), response.totalDespesas());
@@ -248,7 +248,7 @@ class LancamentoServiceTests {
     @Test
     void resumoPermiteSaldoNegativoQuandoNaoHaReceita() {
         java.time.YearMonth mes = java.time.YearMonth.of(2026, 12);
-        when(lancamentos.findParaResumoMensal(any(), any(), any()))
+        when(lancamentos.findPorPeriodo(any(), any(), any()))
             .thenReturn(java.util.List.of(lancamentoResumo(20L, TipoLancamento.DESPESA, "10.25", mes.atDay(1))));
         var response = service.resumirMes("dono@example.com", mes);
         assertEquals(new BigDecimal("-10.25"), response.diferenca());

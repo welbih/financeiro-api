@@ -73,7 +73,7 @@ class FinanceiroApiApplicationIT {
 
     @Test
     void validaMigrationsLoginPersistenciaEHealthSemSeedDev() throws Exception {
-        assertEquals(9, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(10, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class));
         assertEquals(0, usuarios.count());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class));
 
@@ -122,6 +122,7 @@ class FinanceiroApiApplicationIT {
         validarCadastroLancamentoAutenticado(client, token, usuario, maria);
         validarCrudCategorias(client, token, usuario, maria);
         validarCategoriaOpcional(client, token);
+        validarPlanejamento(client, token, usuario, maria);
 
         var health = client.send(HttpRequest.newBuilder(URI.create(
             "http://localhost:" + port + "/actuator/health/readiness")).GET().build(), HttpResponse.BodyHandlers.ofString());
@@ -129,6 +130,56 @@ class FinanceiroApiApplicationIT {
         assertEquals("UP", JsonMapper.builder().build().readTree(health.body()).get("status").asString());
         assertFalse(health.body().contains("components"));
         validarLogout(client, token, login);
+    }
+
+    private void validarPlanejamento(HttpClient client, String token, Usuario usuario, Usuario outro) throws Exception {
+        String base = "http://localhost:" + port + "/planejamento-financeiro";
+        assertEquals(401, client.send(HttpRequest.newBuilder(URI.create(base)).GET().build(),
+            HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(404, enviarJson(client, token, "GET", base, null).statusCode());
+        String config = """
+            {"diaFechamento":9,"dataInicioControle":"2090-11-10","saldoInicial":300,"usuarioId":%d}
+            """.formatted(outro.getId());
+        var salvo = enviarJson(client, token, "PUT", base, config);
+        assertEquals(200, salvo.statusCode(), salvo.body());
+        var mapper = JsonMapper.builder().build();
+        assertEquals(usuario.getId().longValue(), mapper.readTree(salvo.body()).get("usuarioId").asLong());
+        assertEquals(200, enviarJson(client, token, "PUT", base, config).statusCode());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM planejamentos_financeiros", Integer.class));
+        assertEquals(200, enviarJson(client, token, "GET", base, null).statusCode());
+        assertEquals(400, enviarJson(client, token, "PUT", base, config.replace(":9,", ":32,")).statusCode());
+        assertEquals(400, enviarJson(client, token, "PUT", base, config.replace("2090-11-10", "2090-11-11")).statusCode());
+        inserirParaResumo(usuario, "DESPESA", "999", "2090-11-09");
+        Long receita = inserirParaResumo(usuario, "RECEITA", "4000", "2090-12-09");
+        Long despesa = inserirParaResumo(usuario, "DESPESA", "2500", "2090-11-10");
+        jdbc.update("UPDATE lancamentos SET pago = true, data_pagamento = data_vencimento WHERE id IN (?, ?)", receita, despesa);
+        Long previsto = inserirParaResumo(usuario, "DESPESA", "1000", "2090-12-15");
+        jdbc.update("UPDATE lancamentos SET data_previsao_pagamento = DATE '2090-12-09' WHERE id = ?", previsto);
+        inserirParaResumo(usuario, "RECEITA", "4000", "2091-01-09");
+        inserirParaResumo(usuario, "DESPESA", "4200", "2090-12-10");
+        inserirParaResumo(outro, "RECEITA", "99999", "2090-12-09");
+        var janeiro = enviarJson(client, token, "GET", base + "/resumo?mesFechamento=2091-01", null);
+        assertEquals(200, janeiro.statusCode(), janeiro.body());
+        var jan = mapper.readTree(janeiro.body());
+        assertEquals(800, jan.get("saldoInicialProjetado").asInt());
+        assertEquals(600, jan.get("saldoFinalProjetado").asInt());
+        assertEquals(2, jan.get("lancamentos").size());
+        var dezembro = enviarJson(client, token, "GET", base + "/resumo?mesFechamento=2090-12", null);
+        var dez = mapper.readTree(dezembro.body());
+        assertEquals("2090-11-10", dez.get("dataInicial").asString());
+        assertEquals("2090-12-09", dez.get("dataFinal").asString());
+        assertEquals(800, dez.get("saldoFinalProjetado").asInt());
+        assertEquals(4000, dez.get("receitasRecebidas").asInt());
+        assertEquals(2500, dez.get("despesasPagas").asInt());
+        assertEquals(1000, dez.get("despesasPendentes").asInt());
+        assertEquals(3, dez.get("lancamentos").size());
+        var fevereiro = enviarJson(client, token, "GET", base + "/resumo?mesFechamento=2091-02", null);
+        assertEquals(600, mapper.readTree(fevereiro.body()).get("saldoFinalProjetado").asInt());
+        jdbc.update("UPDATE lancamentos SET valor = 2600 WHERE id = ?", despesa);
+        var recalculado = enviarJson(client, token, "GET", base + "/resumo?mesFechamento=2091-01", null);
+        assertEquals(500, mapper.readTree(recalculado.body()).get("saldoFinalProjetado").asInt());
+        assertEquals(400, enviarJson(client, token, "GET", base + "/resumo?mesFechamento=2090-11", null).statusCode());
+        assertEquals(400, enviarJson(client, token, "GET", base + "/resumo?mesFechamento=invalido", null).statusCode());
     }
 
     private void validarPersistenciaLancamento(Usuario usuario) {
