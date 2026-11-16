@@ -6,6 +6,8 @@ import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.UUID;
 
+import com.datadynecode.financeiro.api.config.auth.TokenAtivoValidator;
+
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
@@ -17,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.security.oauth2.core.*;
 import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 
 @Configuration
 public class JwtConfig {
@@ -48,13 +51,13 @@ public class JwtConfig {
 
     @Bean
     public JwtDecoder jwtDecoder(RSAKey key, @Value("${jwt.issuer}") String issuer,
-            @Value("${security.client-id}") String clientId) throws Exception {
+            @Value("${security.client-id}") String clientId, OAuth2AuthorizationService authorizationService) throws Exception {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(key.toRSAPublicKey()).build();
         OAuth2TokenValidator<Jwt> audienceValidator = jwt -> jwt.getAudience().contains(clientId)
             ? OAuth2TokenValidatorResult.success()
             : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Audience invalida", null));
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-            JwtValidators.createDefaultWithIssuer(issuer), audienceValidator));
+            JwtValidators.createDefaultWithIssuer(issuer), audienceValidator, new TokenAtivoValidator(authorizationService)));
         return decoder;
     }
 }

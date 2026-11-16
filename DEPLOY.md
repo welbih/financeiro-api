@@ -47,7 +47,7 @@ a cada deploy. Replicas precisam compartilhar a mesma chave, issuer e cliente.
 ## Publicacao
 
 1. Execute `./mvnw verify` (Windows: `.\mvnw.cmd verify`) com Docker disponivel.
-   A suite cria um PostgreSQL isolado, aplica as cinco migrations e testa login,
+   A suite cria um PostgreSQL isolado, aplica as migrations e testa login,
    persistencia OAuth, validacao JPA e readiness sem seed de desenvolvimento.
 2. Conecte o repositorio ao Railway e selecione a raiz que contem o Dockerfile.
 3. Configure as variaveis acima e gere/configure o dominio publico da API.
@@ -110,16 +110,20 @@ No psql, configure as variaveis e carregue o script:
   compartilhada (gateway/WAF/Redis), antes de exposicao publica.
 - Configurar CI para executar `verify` antes de liberar deploys.
 - Definir politicas de recuperacao de senha, bloqueio de contas, auditoria,
-  revogacao de JWT e rotacao de chaves; ainda nao estao implementadas.
-- Implementar os casos de uso financeiros, endpoints e autorizacao por recurso:
-  atualmente ha autenticacao e cadastro de usuarios temporariamente publico.
+  encerramento global de sessoes e rotacao de chaves; ainda nao estao implementadas.
+  Logout com revogacao individual de token ja esta implementado.
+- Completar os demais casos de uso financeiros: atualmente ha autenticacao,
+  cadastro de usuarios temporariamente publico, CRUD de categorias e lancamentos
+  por usuario e resumo mensal.
 - Restringir novamente `POST /usuarios` antes de disponibilizar cadastro de
   permissoes administrativas em uma API publica.
 
-JWTs sao validados localmente. Persistir uma autorizacao ou revoga-la no servidor
-OAuth nao invalida imediatamente um JWT ja emitido no Resource Server. Use
-tokens curtos enquanto nao houver politica explicita de revogacao. Nao existe
-refresh token neste fluxo. O grant personalizado e para clientes confiaveis;
+JWTs tem assinatura validada localmente e autorizacao ativa verificada no
+PostgreSQL a cada validacao. `POST /auth/logout` revoga o token atual e as
+proximas requisicoes com ele retornam 401, tambem em outras replicas. A
+migration V8 indexa as consultas de access token. Mantenha o banco disponivel
+para as requisicoes autenticadas. Nao existe refresh token neste fluxo.
+O grant personalizado e para clientes confiaveis;
 um client-secret nao pode ser protegido em codigo de frontend publico.
 
 Migrations versionadas ja aplicadas nao devem ser editadas. Valide alteracoes

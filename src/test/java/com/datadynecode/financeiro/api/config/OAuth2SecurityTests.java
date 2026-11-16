@@ -2,6 +2,15 @@ package com.datadynecode.financeiro.api.config;
 
 import com.datadynecode.financeiro.api.config.auth.PasswordGrantAuthenticationToken;
 import com.datadynecode.financeiro.api.controller.UsuarioController;
+import com.datadynecode.financeiro.api.controller.LancamentoController;
+import com.datadynecode.financeiro.api.controller.CategoriaController;
+import com.datadynecode.financeiro.api.controller.AutenticacaoController;
+import com.datadynecode.financeiro.api.service.LogoutService;
+import com.datadynecode.financeiro.api.service.CategoriaService;
+import com.datadynecode.financeiro.api.dto.CategoriaRequest;
+import com.datadynecode.financeiro.api.dto.CategoriaResponse;
+import com.datadynecode.financeiro.api.service.LancamentoService;
+import com.datadynecode.financeiro.api.dto.LancamentoResponse;
 import com.datadynecode.financeiro.api.dto.UsuarioResponse;
 import com.datadynecode.financeiro.api.exception.ApiExceptionHandler;
 import com.datadynecode.financeiro.api.service.UsuarioService;
@@ -68,6 +77,8 @@ class OAuth2SecurityTests {
         String token = JsonMapper.builder().build().readTree(body).get("access_token").asString();
         var jwt = decoder.decode(token);
         assertEquals("admin@financeiro.local", jwt.getSubject());
+        assertEquals("Maria", jwt.getClaimAsString("nome"));
+        assertEquals("Silva", jwt.getClaimAsString("sobrenome"));
         assertEquals(java.util.List.of("ROLE_ADMIN"), jwt.getClaimAsStringList("authorities"));
         assertEquals(600, java.time.Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt()).toSeconds());
         mvc.perform(get("/api/test").header("Authorization", "Bearer " + token))
@@ -170,6 +181,229 @@ class OAuth2SecurityTests {
          "senha":"SenhaForte123!","roles":["ROLE_ADMIN"]}
         """;
 
+    private static final String CADASTRO_LANCAMENTO = """
+        {"tipoLancamento":"DESPESA","descricao":"Energia","valor":150.25,
+         "pago":false,"dataVencimento":"2026-12-10","categoriaId":30}
+        """;
+
+    @Test
+    void cadastroLancamentoExigeToken() throws Exception {
+        mvc.perform(post("/lancamentos").contentType("application/json").content(CADASTRO_LANCAMENTO))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void cadastroLancamentoUsaSubjectDoTokenEIgnoraUsuarioDoBody() throws Exception {
+        var service = context.getBean(LancamentoService.class);
+        org.mockito.Mockito.clearInvocations(service);
+        org.mockito.Mockito.when(service.cadastrar(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq("dono@example.com")))
+            .thenReturn(new LancamentoResponse(20L, com.datadynecode.financeiro.api.model.TipoLancamento.DESPESA,
+                10L, "Energia", new java.math.BigDecimal("150.25"), false,
+                java.time.LocalDate.of(2026, 12, 10), null, null, 30L));
+        String json = CADASTRO_LANCAMENTO.replace("{", "{\"usuarioId\":999,\"usuario\":{\"id\":999},");
+        mvc.perform(post("/lancamentos").with(jwt().jwt(token -> token.subject("dono@example.com")))
+                .contentType("application/json").content(json))
+            .andExpect(status().isCreated()).andExpect(jsonPath("$.usuarioId").value(10))
+            .andExpect(jsonPath("$.usuario").doesNotExist());
+        org.mockito.Mockito.verify(service).cadastrar(org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq("dono@example.com"));
+    }
+
+    @Test
+    void cadastroLancamentoValidaValorEDatas() throws Exception {
+        mvc.perform(post("/lancamentos").with(jwt())
+                .contentType("application/json").content(CADASTRO_LANCAMENTO.replace("150.25", "-10")))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/lancamentos").with(jwt())
+                .contentType("application/json").content(CADASTRO_LANCAMENTO.replace("2026-12-10", "data-invalida")))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void operacoesLancamentoExigemToken() throws Exception {
+        mvc.perform(get("/lancamentos")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/lancamentos/20").contentType("application/json").content(CADASTRO_LANCAMENTO))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(delete("/lancamentos/20")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void listagemUsaUsuarioDoJwtEValidaPaginacao() throws Exception {
+        var service = context.getBean(LancamentoService.class);
+        org.mockito.Mockito.when(service.listar("dono@example.com", 0, 20)).thenReturn(
+            new com.datadynecode.financeiro.api.dto.LancamentoPageResponse(java.util.List.of(), 0, 20, 0, 0));
+        mvc.perform(get("/lancamentos").with(jwt().jwt(token -> token.subject("dono@example.com"))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.content").isArray())
+            .andExpect(jsonPath("$.page").value(0)).andExpect(jsonPath("$.size").value(20));
+        mvc.perform(get("/lancamentos?page=-1").with(jwt())).andExpect(status().isBadRequest());
+        mvc.perform(get("/lancamentos?size=101").with(jwt())).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void atualizacaoERemocaoUsamIdEUsuarioAutenticado() throws Exception {
+        var service = context.getBean(LancamentoService.class);
+        org.mockito.Mockito.clearInvocations(service);
+        mvc.perform(put("/lancamentos/20").with(jwt().jwt(token -> token.subject("dono@example.com")))
+                .contentType("application/json").content(CADASTRO_LANCAMENTO))
+            .andExpect(status().isOk());
+        org.mockito.Mockito.verify(service).atualizar(org.mockito.ArgumentMatchers.eq(20L),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("dono@example.com"));
+        mvc.perform(delete("/lancamentos/20").with(jwt().jwt(token -> token.subject("dono@example.com"))))
+            .andExpect(status().isNoContent()).andExpect(content().string(""));
+        org.mockito.Mockito.verify(service).remover(20L, "dono@example.com");
+    }
+
+    @Test
+    void retorna404SemRevelarLancamentoDeOutroUsuario() throws Exception {
+        var service = context.getBean(LancamentoService.class);
+        org.mockito.Mockito.doThrow(new com.datadynecode.financeiro.api.exception.LancamentoNaoEncontradoException())
+            .when(service).remover(999L, "dono@example.com");
+        mvc.perform(delete("/lancamentos/999").with(jwt().jwt(token -> token.subject("dono@example.com"))))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void resumoMensalExigeToken() throws Exception {
+        mvc.perform(get("/lancamentos/resumo-mensal?mes=2026-12")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void resumoMensalUsaMesEUsuarioAutenticado() throws Exception {
+        var service = context.getBean(LancamentoService.class);
+        org.mockito.Mockito.when(service.resumirMes("dono@example.com", java.time.YearMonth.of(2026, 12)))
+            .thenReturn(new com.datadynecode.financeiro.api.dto.ResumoMensalLancamentosResponse(
+                "2026-12", new java.math.BigDecimal("0.00"), new java.math.BigDecimal("0.00"),
+                new java.math.BigDecimal("0.00"), java.util.List.of()));
+        mvc.perform(get("/lancamentos/resumo-mensal?mes=2026-12")
+                .with(jwt().jwt(token -> token.subject("dono@example.com"))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.mes").value("2026-12"))
+            .andExpect(jsonPath("$.totalDespesas").value(0))
+            .andExpect(jsonPath("$.totalReceitas").value(0))
+            .andExpect(jsonPath("$.diferenca").value(0))
+            .andExpect(jsonPath("$.lancamentos").isArray());
+        org.mockito.Mockito.verify(service).resumirMes("dono@example.com", java.time.YearMonth.of(2026, 12));
+    }
+
+    @Test
+    void resumoMensalExigeMesComAnoValido() throws Exception {
+        mvc.perform(get("/lancamentos/resumo-mensal").with(jwt())).andExpect(status().isBadRequest());
+        mvc.perform(get("/lancamentos/resumo-mensal?mes=12").with(jwt())).andExpect(status().isBadRequest());
+        mvc.perform(get("/lancamentos/resumo-mensal?mes=2026-13").with(jwt())).andExpect(status().isBadRequest());
+    }
+
+    private static final String CADASTRO_CATEGORIA = """
+        {"nome":"Alimentacao","tipoLancamento":"DESPESA","usuarioId":999}
+        """;
+
+    @Test
+    void crudCategoriasExigeToken() throws Exception {
+        mvc.perform(post("/categorias").contentType("application/json").content(CADASTRO_CATEGORIA))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get("/categorias")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/categorias/30")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/categorias/30").contentType("application/json").content(CADASTRO_CATEGORIA))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(delete("/categorias/30")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void cadastraCategoriaParaUsuarioDoJwt() throws Exception {
+        var service = context.getBean(CategoriaService.class);
+        org.mockito.Mockito.when(service.cadastrar(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq("dono@example.com")))
+            .thenReturn(new CategoriaResponse(30L, "Alimentacao",
+                com.datadynecode.financeiro.api.model.TipoLancamento.DESPESA, 10L));
+        mvc.perform(post("/categorias").with(jwt().jwt(token -> token.subject("dono@example.com")))
+                .contentType("application/json").content(CADASTRO_CATEGORIA))
+            .andExpect(status().isCreated()).andExpect(jsonPath("$.usuarioId").value(10))
+            .andExpect(jsonPath("$.usuario").doesNotExist());
+    }
+
+    @Test
+    void listaCategoriasComFiltroDeTipo() throws Exception {
+        var service = context.getBean(CategoriaService.class);
+        org.mockito.Mockito.when(service.listar("dono@example.com",
+                com.datadynecode.financeiro.api.model.TipoLancamento.DESPESA, 0, 20))
+            .thenReturn(new com.datadynecode.financeiro.api.dto.CategoriaPageResponse(java.util.List.of(), 0, 20, 0, 0));
+        mvc.perform(get("/categorias?tipoLancamento=DESPESA")
+                .with(jwt().jwt(token -> token.subject("dono@example.com"))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.content").isArray());
+        mvc.perform(get("/categorias?size=101").with(jwt())).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void categoriasValidamNomeETipoECategoriaOpcionalNoLancamento() throws Exception {
+        mvc.perform(post("/categorias").with(jwt()).contentType("application/json")
+                .content("{\"nome\":\" \",\"tipoLancamento\":\"DESPESA\"}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/categorias").with(jwt()).contentType("application/json")
+                .content("{\"nome\":\"Casa\"}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/lancamentos").with(jwt()).contentType("application/json")
+                .content(CADASTRO_LANCAMENTO.replace(",\"categoriaId\":30", "")))
+            .andExpect(status().isCreated());
+        mvc.perform(post("/lancamentos").with(jwt()).contentType("application/json")
+                .content(CADASTRO_LANCAMENTO.replace("\"categoriaId\":30", "\"categoriaId\":null")))
+            .andExpect(status().isCreated());
+        mvc.perform(post("/lancamentos").with(jwt()).contentType("application/json")
+                .content(CADASTRO_LANCAMENTO.replace("\"categoriaId\":30", "\"categoriaId\":0")))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void logoutExigeBearerToken() throws Exception {
+        mvc.perform(post("/auth/logout")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/auth/logout").header("Authorization", "Bearer token-invalido"))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logoutRevogaJwtEPermiteNovoLogin() throws Exception {
+        String token = emitirToken();
+        String outraSessao = emitirToken();
+        assertNotEquals(token, outraSessao);
+        mvc.perform(get("/api/test").header("Authorization", "Bearer " + token)).andExpect(status().isOk());
+        mvc.perform(post("/auth/logout").header("Authorization", "Bearer " + token)
+                .contentType("application/json").content("{\"token\":\"ignorado\"}"))
+            .andExpect(status().isNoContent()).andExpect(content().string(""));
+        mvc.perform(get("/api/test").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/auth/logout").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/test").header("Authorization", "Bearer " + outraSessao)).andExpect(status().isOk());
+        mvc.perform(get("/api/test").header("Authorization", "Bearer " + emitirToken())).andExpect(status().isOk());
+    }
+
+    @Test
+    void revogacaoOAuthTambemInvalidaJwtNosRecursos() throws Exception {
+        String token = emitirToken();
+        mvc.perform(post("/oauth2/revoke").with(httpBasic("test-client", "test-secret"))
+                .param("token", token).param("token_type_hint", "access_token"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/test").header("Authorization", "Bearer " + token))
+            .andExpect(status().isUnauthorized());
+    }
+
+    private String emitirToken() throws Exception {
+        String body = mvc.perform(post("/oauth2/token").with(httpBasic("test-client", "test-secret"))
+                .param("grant_type", PasswordGrantAuthenticationToken.GRANT_TYPE.getValue())
+                .param("username", "admin@financeiro.local").param("password", "senha-teste"))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return JsonMapper.builder().build().readTree(body).get("access_token").asString();
+    }
+
+    @Test
+    void categoriaEmUsoRetornaConflitoECategoriaAlheiaRetorna404() throws Exception {
+        var service = context.getBean(CategoriaService.class);
+        org.mockito.Mockito.doThrow(new com.datadynecode.financeiro.api.exception.CategoriaEmConflitoException("Categoria em uso"))
+            .when(service).remover(31L, "dono@example.com");
+        org.mockito.Mockito.when(service.buscar(999L, "dono@example.com"))
+            .thenThrow(new com.datadynecode.financeiro.api.exception.CategoriaNaoEncontradaException());
+        mvc.perform(delete("/categorias/31").with(jwt().jwt(token -> token.subject("dono@example.com"))))
+            .andExpect(status().isConflict());
+        mvc.perform(get("/categorias/999").with(jwt().jwt(token -> token.subject("dono@example.com"))))
+            .andExpect(status().isNotFound());
+    }
+
     @Test
     void cadastroPermiteAcessoSemToken() throws Exception {
         mvc.perform(post("/usuarios").contentType("application/json").content(CADASTRO))
@@ -209,15 +443,34 @@ class OAuth2SecurityTests {
     @EnableWebMvc
     @EnableWebSecurity
     @Import({SecurityConfig.class, AuthorizationServerConfig.class, ResourceServerConfig.class, JwtConfig.class,
-        UsuarioController.class, ApiExceptionHandler.class})
+        UsuarioController.class, LancamentoController.class, CategoriaController.class, AutenticacaoController.class,
+        LogoutService.class, ApiExceptionHandler.class})
     static class TestConfig {
         @Bean
         UsuarioService usuarioService() { return org.mockito.Mockito.mock(UsuarioService.class); }
 
         @Bean
+        LancamentoService lancamentoService() { return org.mockito.Mockito.mock(LancamentoService.class); }
+
+        @Bean
+        CategoriaService categoriaService() { return org.mockito.Mockito.mock(CategoriaService.class); }
+
+        @Bean
         UserDetailsService userDetailsService() {
-            return new InMemoryUserDetailsManager(User.withUsername("admin@financeiro.local")
-                .password(new BCryptPasswordEncoder().encode("senha-teste")).roles("ADMIN").build());
+            var usuario = new com.datadynecode.financeiro.api.model.Usuario();
+            usuario.setNome("Maria");
+            usuario.setSobrenome("Silva");
+            usuario.setEmail("admin@financeiro.local");
+            usuario.setSenha(new BCryptPasswordEncoder().encode("senha-teste"));
+            var role = new com.datadynecode.financeiro.api.model.Role();
+            role.setAuthority("ROLE_ADMIN");
+            usuario.getRoles().adicionar(role);
+            return username -> {
+                if (!usuario.getUsername().equals(username)) {
+                    throw new org.springframework.security.core.userdetails.UsernameNotFoundException("Usuario nao encontrado");
+                }
+                return usuario;
+            };
         }
 
         @Bean
