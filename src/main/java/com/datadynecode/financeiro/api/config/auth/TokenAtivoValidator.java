@@ -1,4 +1,6 @@
 package com.datadynecode.financeiro.api.config.auth;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.core.userdetails.UserDetailsService;
 
 import java.util.Objects;
 
@@ -12,9 +14,12 @@ import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 
 public class TokenAtivoValidator implements OAuth2TokenValidator<Jwt> {
     private final OAuth2AuthorizationService authorizationService;
+    private final UserDetailsService userDetailsService;
 
-    public TokenAtivoValidator(OAuth2AuthorizationService authorizationService) {
+    public TokenAtivoValidator(OAuth2AuthorizationService authorizationService,
+            UserDetailsService userDetailsService) {
         this.authorizationService = authorizationService;
+        this.userDetailsService = userDetailsService;
     }
 
     @Override
@@ -25,6 +30,13 @@ public class TokenAtivoValidator implements OAuth2TokenValidator<Jwt> {
                 || !Objects.equals(authorization.getPrincipalName(), jwt.getSubject())) {
             return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Token invalido ou inativo", null));
         }
-        return OAuth2TokenValidatorResult.success();
+        try {
+            if (userDetailsService.loadUserByUsername(jwt.getSubject()).isEnabled()) {
+                return OAuth2TokenValidatorResult.success();
+            }
+        } catch (UsernameNotFoundException exception) {
+            // Tokens de usuarios removidos tambem deixam de ser aceitos.
+        }
+        return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Usuario inativo ou inexistente", null));
     }
 }

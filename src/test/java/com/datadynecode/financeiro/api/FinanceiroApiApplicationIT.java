@@ -73,7 +73,7 @@ class FinanceiroApiApplicationIT {
 
     @Test
     void validaMigrationsLoginPersistenciaEHealthSemSeedDev() throws Exception {
-        assertEquals(10, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(11, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class));
         assertEquals(0, usuarios.count());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class));
 
@@ -134,7 +134,35 @@ class FinanceiroApiApplicationIT {
         assertEquals("UP", JsonMapper.builder().build().readTree(health.body()).get("status").asString());
         assertFalse(health.body().contains("components"));
         validarLogout(client, token, login);
+        validarAdministracaoUsuarios(client, login, usuario, maria);
         validarAlteracaoSenha(client, login, usuario);
+    }
+
+    private void validarAdministracaoUsuarios(HttpClient client, HttpRequest login, Usuario admin, Usuario maria) throws Exception {
+        var mapper = JsonMapper.builder().build();
+        String token = mapper.readTree(client.send(login, HttpResponse.BodyHandlers.ofString()).body()).get("access_token").asString();
+        HttpRequest loginMaria = HttpRequest.newBuilder(login.uri())
+            .header("Authorization", login.headers().firstValue("Authorization").orElseThrow())
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString("grant_type=urn:financeiro:params:oauth:grant-type:password&username=maria@example.com&password=SenhaForte123!"))
+            .build();
+        String tokenMaria = mapper.readTree(client.send(loginMaria, HttpResponse.BodyHandlers.ofString()).body()).get("access_token").asString();
+        String base = "http://localhost:" + port + "/usuarios";
+        assertEquals(403, enviarJson(client, tokenMaria, "GET", base, null).statusCode());
+        assertEquals(403, enviarJson(client, tokenMaria, "PATCH", base + "/" + admin.getId() + "/inativar", null).statusCode());
+        var lista = enviarJson(client, token, "GET", base + "?page=0&size=1", null);
+        assertEquals(200, lista.statusCode(), lista.body());
+        assertEquals(1, mapper.readTree(lista.body()).get("content").size());
+        assertEquals(2, mapper.readTree(lista.body()).get("totalElements").asInt());
+        assertFalse(lista.body().contains("senha"));
+        String inativar = base + "/" + maria.getId() + "/inativar";
+        assertEquals(204, enviarJson(client, token, "PATCH", inativar, null).statusCode());
+        assertEquals(204, enviarJson(client, token, "PATCH", inativar, null).statusCode());
+        assertFalse(usuarios.findById(maria.getId()).orElseThrow().isAtivo());
+        assertEquals(401, enviarJson(client, tokenMaria, "GET", "http://localhost:" + port + "/lancamentos", null).statusCode());
+        assertEquals(400, client.send(loginMaria, HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(404, enviarJson(client, token, "PATCH", base + "/999999999/inativar", null).statusCode());
+        assertEquals(200, enviarJson(client, token, "GET", base, null).statusCode());
     }
 
     private void validarAlteracaoSenha(HttpClient client, HttpRequest login, Usuario usuario) throws Exception {

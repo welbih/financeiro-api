@@ -30,6 +30,21 @@ class UsuarioServiceTests {
     }
 
     @Test
+    void inativaSemRemoverUsuarioOuDados() {
+        Usuario usuario = new Usuario();
+        assertTrue(usuario.isEnabled());
+        when(usuarios.findById(10L)).thenReturn(Optional.of(usuario));
+        service.inativar(10L);
+        assertFalse(usuario.isAtivo());
+        assertFalse(usuario.isEnabled());
+        service.inativar(10L);
+        verify(usuarios, times(2)).saveAndFlush(usuario);
+        verify(usuarios, never()).delete(any());
+        assertThrows(com.datadynecode.financeiro.api.exception.UsuarioNaoEncontradoException.class,
+            () -> service.inativar(99L));
+    }
+
+    @Test
     void alteraSenhaSomenteAposConferirAtual() {
         Usuario usuario = new Usuario();
         usuario.setSenha("hash-antigo");

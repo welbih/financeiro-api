@@ -17,7 +17,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class LogoutServiceTests {
     private final OAuth2AuthorizationService authorizations = new InMemoryOAuth2AuthorizationService();
     private final LogoutService service = new LogoutService(authorizations);
-    private final TokenAtivoValidator validator = new TokenAtivoValidator(authorizations);
+    private final TokenAtivoValidator validator = new TokenAtivoValidator(authorizations,
+        email -> org.springframework.security.core.userdetails.User.withUsername(email)
+            .password("hash").authorities("ROLE_USER").build());
 
     private void registrar(String token, String subject, Instant expiresAt) {
         RegisteredClient client = RegisteredClient.withId("logout-client").clientId("logout-client")

@@ -1,4 +1,9 @@
 package com.datadynecode.financeiro.api.service;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.prepost.PreAuthorize;
+import com.datadynecode.financeiro.api.exception.UsuarioNaoEncontradoException;
+import com.datadynecode.financeiro.api.dto.UsuarioPageResponse;
 
 import java.nio.charset.StandardCharsets;
 
@@ -24,6 +29,24 @@ public class UsuarioService {
     private final UsuarioRepository usuarioRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional(readOnly = true)
+    public UsuarioPageResponse listar(int page, int size) {
+        var usuarios = usuarioRepository.findAll(PageRequest.of(page, size,
+            Sort.by("nome", "id"))).map(UsuarioMapper::toAdministrativoResponse);
+        return new UsuarioPageResponse(usuarios.getContent(), usuarios.getNumber(),
+            usuarios.getSize(), usuarios.getTotalElements(), usuarios.getTotalPages());
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    public void inativar(Long id) {
+        Usuario usuario = usuarioRepository.findById(id)
+            .orElseThrow(UsuarioNaoEncontradoException::new);
+        usuario.setAtivo(false);
+        usuarioRepository.saveAndFlush(usuario);
+    }
 
     @Transactional
     public void alterarSenha(AlterarSenhaRequest request, String emailAutenticado) {

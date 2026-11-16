@@ -1,4 +1,5 @@
 package com.datadynecode.financeiro.api.config;
+import org.springframework.security.core.userdetails.UserDetailsService;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -51,13 +52,14 @@ public class JwtConfig {
 
     @Bean
     public JwtDecoder jwtDecoder(RSAKey key, @Value("${jwt.issuer}") String issuer,
-            @Value("${security.client-id}") String clientId, OAuth2AuthorizationService authorizationService) throws Exception {
+            @Value("${security.client-id}") String clientId, OAuth2AuthorizationService authorizationService,
+            UserDetailsService userDetailsService) throws Exception {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(key.toRSAPublicKey()).build();
         OAuth2TokenValidator<Jwt> audienceValidator = jwt -> jwt.getAudience().contains(clientId)
             ? OAuth2TokenValidatorResult.success()
             : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Audience invalida", null));
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-            JwtValidators.createDefaultWithIssuer(issuer), audienceValidator, new TokenAtivoValidator(authorizationService)));
+            JwtValidators.createDefaultWithIssuer(issuer), audienceValidator, new TokenAtivoValidator(authorizationService, userDetailsService)));
         return decoder;
     }
 }

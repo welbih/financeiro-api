@@ -182,6 +182,23 @@ class OAuth2SecurityTests {
         """;
 
     @Test
+    void administracaoDeUsuariosExigeRoleAdmin() throws Exception {
+        mvc.perform(get("/usuarios")).andExpect(status().isUnauthorized());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/inativar"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get("/usuarios").with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"))))
+            .andExpect(status().isForbidden());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/inativar")
+                .with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"))))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/usuarios").with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"))))
+            .andExpect(status().isOk());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/inativar")
+                .with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"))))
+            .andExpect(status().isNoContent());
+    }
+
+    @Test
     void alterarSenhaExigeTokenEValidaEntrada() throws Exception {
         String body = "{\"senhaAtual\":\"SenhaAtual123!\",\"novaSenha\":\"NovaSenha123!\"}";
         mvc.perform(put("/usuarios/senha").contentType("application/json").content(body))

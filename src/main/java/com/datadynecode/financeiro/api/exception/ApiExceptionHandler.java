@@ -9,6 +9,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(UsuarioNaoEncontradoException.class)
+    public ProblemDetail usuarioNaoEncontrado(UsuarioNaoEncontradoException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
     @ExceptionHandler(PlanejamentoNaoEncontradoException.class)
     public ProblemDetail planejamentoNaoEncontrado(PlanejamentoNaoEncontradoException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
