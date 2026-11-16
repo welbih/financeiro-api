@@ -3,6 +3,8 @@ package com.datadynecode.financeiro.api.service;
 import java.nio.charset.StandardCharsets;
 
 import com.datadynecode.financeiro.api.dto.UsuarioRequest;
+import com.datadynecode.financeiro.api.dto.AlterarSenhaRequest;
+import com.datadynecode.financeiro.api.exception.UsuarioAutenticadoNaoEncontradoException;
 import com.datadynecode.financeiro.api.dto.UsuarioResponse;
 import com.datadynecode.financeiro.api.exception.CadastroInvalidoException;
 import com.datadynecode.financeiro.api.exception.EmailJaCadastradoException;
@@ -24,13 +26,30 @@ public class UsuarioService {
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
+    public void alterarSenha(AlterarSenhaRequest request, String emailAutenticado) {
+        Usuario usuario = usuarioRepository.findByEmail(emailAutenticado)
+            .orElseThrow(UsuarioAutenticadoNaoEncontradoException::new);
+        validarTamanhoSenha(request.senhaAtual());
+        validarTamanhoSenha(request.novaSenha());
+        if (!passwordEncoder.matches(request.senhaAtual(), usuario.getSenha())) {
+            throw new CadastroInvalidoException("Senha atual incorreta");
+        }
+        usuario.setSenha(passwordEncoder.encode(request.novaSenha()));
+        usuarioRepository.saveAndFlush(usuario);
+    }
+
+    private void validarTamanhoSenha(String senha) {
+        if (senha.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new CadastroInvalidoException("Senha deve ter no maximo 72 bytes em UTF-8");
+        }
+    }
+
+    @Transactional
     public UsuarioResponse cadastrar(UsuarioRequest request) {
         if (usuarioRepository.existsByEmail(request.email())) {
             throw new EmailJaCadastradoException();
         }
-        if (request.senha().getBytes(StandardCharsets.UTF_8).length > 72) {
-            throw new CadastroInvalidoException("Senha deve ter no maximo 72 bytes em UTF-8");
-        }
+        validarTamanhoSenha(request.senha());
         Role role = roleRepository.findByAuthority("ROLE_USER")
             .orElseThrow(() -> new IllegalStateException("ROLE_USER nao cadastrada no banco"));
         Usuario usuario = new Usuario();

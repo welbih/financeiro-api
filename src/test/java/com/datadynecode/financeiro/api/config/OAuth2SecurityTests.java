@@ -182,6 +182,22 @@ class OAuth2SecurityTests {
         """;
 
     @Test
+    void alterarSenhaExigeTokenEValidaEntrada() throws Exception {
+        String body = "{\"senhaAtual\":\"SenhaAtual123!\",\"novaSenha\":\"NovaSenha123!\"}";
+        mvc.perform(put("/usuarios/senha").contentType("application/json").content(body))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(put("/usuarios/senha").with(jwt().jwt(token -> token.subject("maria@example.com")))
+                .contentType("application/json").content(body))
+            .andExpect(status().isNoContent()).andExpect(content().string(""));
+        org.mockito.Mockito.verify(context.getBean(UsuarioService.class)).alterarSenha(
+            new com.datadynecode.financeiro.api.dto.AlterarSenhaRequest("SenhaAtual123!", "NovaSenha123!"), "maria@example.com");
+        for (String invalido : new String[]{"{}", body.replace("NovaSenha123!", "curta"), body.replace("SenhaAtual123!", "")}) {
+            mvc.perform(put("/usuarios/senha").with(jwt()).contentType("application/json").content(invalido))
+                .andExpect(status().isBadRequest()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("NovaSenha123!"))));
+        }
+    }
+
+    @Test
     void cadastroRejeitaRolesInformadasPeloCliente() throws Exception {
         for (String roles : new String[]{"[\"ROLE_ADMIN\"]", "[\"ROLE_USER\"]", "[]", "null"}) {
             mvc.perform(post("/usuarios").contentType("application/json")

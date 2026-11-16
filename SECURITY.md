@@ -162,6 +162,23 @@ explicitamente com o mesmo BCrypt usado ao registrar o cliente.
 
 ## Cadastro de usuarios
 
+### Alteracao de senha
+
+`PUT /usuarios/senha` exige Bearer token e altera apenas a senha do usuario
+identificado pelo token. Corpo:
+
+```json
+{"senhaAtual":"SenhaAtual123!","novaSenha":"NovaSenhaForte123!"}
+```
+
+A senha atual e conferida com BCrypt antes da gravacao. A nova senha deve ter
+ao menos 12 caracteres e no maximo 72 bytes UTF-8, como no cadastro.
+Retorna `204` sem corpo; senha atual incorreta ou dados invalidos retornam `400`.
+Sem token valido retorna `401`. As senhas nao sao devolvidas na resposta.
+Tokens ja emitidos permanecem validos ate expirarem ou serem revogados no logout.
+
+### Cadastro publico
+
 `POST /usuarios` esta temporariamente publico, sem exigir token ou role.
 Envie JSON com nome, sobrenome, email e senha original:
 

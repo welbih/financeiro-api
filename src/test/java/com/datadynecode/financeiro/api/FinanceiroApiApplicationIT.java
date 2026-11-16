@@ -134,6 +134,32 @@ class FinanceiroApiApplicationIT {
         assertEquals("UP", JsonMapper.builder().build().readTree(health.body()).get("status").asString());
         assertFalse(health.body().contains("components"));
         validarLogout(client, token, login);
+        validarAlteracaoSenha(client, login, usuario);
+    }
+
+    private void validarAlteracaoSenha(HttpClient client, HttpRequest login, Usuario usuario) throws Exception {
+        var autenticacao = client.send(login, HttpResponse.BodyHandlers.ofString());
+        String token = JsonMapper.builder().build().readTree(autenticacao.body()).get("access_token").asString();
+        String url = "http://localhost:" + port + "/usuarios/senha";
+        String hashAnterior = usuarios.findById(usuario.getId()).orElseThrow().getSenha();
+        assertEquals(400, enviarJson(client, token, "PUT", url,
+            "{\"senhaAtual\":\"errada\",\"novaSenha\":\"NovaSenhaForte123!\"}").statusCode());
+        assertEquals(hashAnterior, usuarios.findById(usuario.getId()).orElseThrow().getSenha());
+        var resposta = enviarJson(client, token, "PUT", url,
+            "{\"senhaAtual\":\"test-password\",\"novaSenha\":\"NovaSenhaForte123!\"}");
+        assertEquals(204, resposta.statusCode(), resposta.body());
+        assertEquals("", resposta.body());
+        String hashNovo = usuarios.findById(usuario.getId()).orElseThrow().getSenha();
+        assertTrue(encoder.matches("NovaSenhaForte123!", hashNovo));
+        assertFalse(encoder.matches("test-password", hashNovo));
+        assertNotEquals("NovaSenhaForte123!", hashNovo);
+        assertEquals(400, client.send(login, HttpResponse.BodyHandlers.ofString()).statusCode());
+        HttpRequest novoLogin = HttpRequest.newBuilder(login.uri())
+            .header("Authorization", login.headers().firstValue("Authorization").orElseThrow())
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString("grant_type=urn:financeiro:params:oauth:grant-type:password&username=integration@example.com&password=NovaSenhaForte123!"))
+            .build();
+        assertEquals(200, client.send(novoLogin, HttpResponse.BodyHandlers.ofString()).statusCode());
     }
 
     private void validarPlanejamento(HttpClient client, String token, Usuario usuario, Usuario outro) throws Exception {

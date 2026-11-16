@@ -4,6 +4,8 @@ import java.util.Optional;
 import java.util.Set;
 
 import com.datadynecode.financeiro.api.dto.UsuarioRequest;
+import com.datadynecode.financeiro.api.dto.AlterarSenhaRequest;
+import com.datadynecode.financeiro.api.exception.UsuarioAutenticadoNaoEncontradoException;
 import com.datadynecode.financeiro.api.exception.CadastroInvalidoException;
 import com.datadynecode.financeiro.api.exception.EmailJaCadastradoException;
 import com.datadynecode.financeiro.api.model.Role;
@@ -25,6 +27,41 @@ class UsuarioServiceTests {
 
     private UsuarioRequest request(String senha) {
         return new UsuarioRequest("Maria", "Silva", "maria@example.com", senha);
+    }
+
+    @Test
+    void alteraSenhaSomenteAposConferirAtual() {
+        Usuario usuario = new Usuario();
+        usuario.setSenha("hash-antigo");
+        when(usuarios.findByEmail("maria@example.com")).thenReturn(Optional.of(usuario));
+        when(encoder.matches("SenhaAtual123!", "hash-antigo")).thenReturn(true);
+        when(encoder.encode("NovaSenha123!")).thenReturn("hash-novo");
+        service.alterarSenha(new AlterarSenhaRequest("SenhaAtual123!", "NovaSenha123!"), "maria@example.com");
+        assertEquals("hash-novo", usuario.getSenha());
+        verify(usuarios).saveAndFlush(usuario);
+        verifyNoInteractions(roles);
+    }
+
+    @Test
+    void senhaAtualIncorretaPreservaHash() {
+        Usuario usuario = new Usuario();
+        usuario.setSenha("hash-antigo");
+        when(usuarios.findByEmail("maria@example.com")).thenReturn(Optional.of(usuario));
+        assertThrows(CadastroInvalidoException.class, () -> service.alterarSenha(
+            new AlterarSenhaRequest("errada", "NovaSenha123!"), "maria@example.com"));
+        assertEquals("hash-antigo", usuario.getSenha());
+        verify(usuarios, never()).saveAndFlush(any());
+        verify(encoder, never()).encode(any());
+    }
+
+    @Test
+    void trocaDeSenhaExigeUsuarioExistenteELimiteEmBytes() {
+        var request = new AlterarSenhaRequest("SenhaAtual123!", "á".repeat(40));
+        assertThrows(UsuarioAutenticadoNaoEncontradoException.class, () -> service.alterarSenha(request, "ausente@example.com"));
+        when(usuarios.findByEmail("maria@example.com")).thenReturn(Optional.of(new Usuario()));
+        assertThrows(CadastroInvalidoException.class, () -> service.alterarSenha(request, "maria@example.com"));
+        verify(usuarios, never()).saveAndFlush(any());
+        verifyNoInteractions(encoder);
     }
 
     @Test
