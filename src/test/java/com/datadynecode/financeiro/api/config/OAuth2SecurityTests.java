@@ -182,6 +182,18 @@ class OAuth2SecurityTests {
         """;
 
     @Test
+    void ativacaoDeUsuarioExigeAdmin() throws Exception {
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/ativar"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/ativar")
+                .with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"))))
+            .andExpect(status().isForbidden());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/ativar")
+                .with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"))))
+            .andExpect(status().isNoContent());
+    }
+
+    @Test
     void administracaoDeUsuariosExigeRoleAdmin() throws Exception {
         mvc.perform(get("/usuarios")).andExpect(status().isUnauthorized());
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/inativar"))

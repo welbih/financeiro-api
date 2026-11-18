@@ -37,6 +37,13 @@ public class UsuarioController {
         usuarioService.inativar(id);
     }
 
+    @PatchMapping("/{id}/ativar")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
+    public void ativar(@PathVariable @Positive Long id) {
+        usuarioService.ativar(id);
+    }
+
     @PutMapping("/senha")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void alterarSenha(@Valid @RequestBody AlterarSenhaRequest request, @AuthenticationPrincipal Jwt jwt) {

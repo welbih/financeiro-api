@@ -172,7 +172,7 @@ identificado pelo token. Corpo:
 ```
 
 A senha atual e conferida com BCrypt antes da gravacao. A nova senha deve ter
-ao menos 12 caracteres e no maximo 72 bytes UTF-8, como no cadastro.
+ao menos 8 caracteres, incluindo maiuscula, minuscula, numero e caractere especial (espaco nao conta), e no maximo 72 bytes UTF-8, como no cadastro.
 Retorna `204` sem corpo; senha atual incorreta ou dados invalidos retornam `400`.
 Sem token valido retorna `401`. As senhas nao sao devolvidas na resposta.
 Tokens ja emitidos permanecem validos ate expirarem ou serem revogados no logout.
@@ -202,7 +202,7 @@ ON CONFLICT (authority) DO NOTHING;
 
 O seed dev inclui essa role. Se ausente, o cadastro falha sem criar usuario
 (erro de configuracao do servidor).
-A senha deve ter ao menos 12 caracteres e no maximo 72 bytes UTF-8, e e salva
+A senha deve ter ao menos 8 caracteres, incluindo maiuscula, minuscula, numero e caractere especial (espaco nao conta), e no maximo 72 bytes UTF-8, e e salva
 como hash BCrypt. O retorno `201` inclui id, nome, sobrenome, email e roles,
 sem senha ou hash. Email duplicado retorna `409`; entrada invalida retorna `400`.
 O cadastro publico nao permite conceder `ROLE_ADMIN`.
@@ -234,6 +234,9 @@ Em Body, selecione `x-www-form-urlencoded`:
 
 O usuario do seed dev usa `admin@financeiro.local`. A senha correspondente ao
 hash atual do seed e `123456`.
+
+O seed dev tambem inclui `usuario@financeiro.local`, ativo, com `ROLE_USER` e
+senha `Usuario123!`, armazenada como hash BCrypt.
 
 A resposta inclui `access_token`, `token_type`, `expires_in` e `scope`.
 Use `Authorization: Bearer <access_token>` nas requisicoes aos recursos.

@@ -45,6 +45,21 @@ class UsuarioServiceTests {
     }
 
     @Test
+    void ativaUsuarioEPreservaSenha() {
+        Usuario usuario = new Usuario();
+        usuario.setAtivo(false);
+        usuario.setSenha("hash");
+        when(usuarios.findById(10L)).thenReturn(Optional.of(usuario));
+        service.ativar(10L);
+        assertTrue(usuario.isEnabled());
+        assertEquals("hash", usuario.getSenha());
+        service.ativar(10L);
+        verify(usuarios, times(2)).saveAndFlush(usuario);
+        assertThrows(com.datadynecode.financeiro.api.exception.UsuarioNaoEncontradoException.class,
+            () -> service.ativar(99L));
+    }
+
+    @Test
     void alteraSenhaSomenteAposConferirAtual() {
         Usuario usuario = new Usuario();
         usuario.setSenha("hash-antigo");

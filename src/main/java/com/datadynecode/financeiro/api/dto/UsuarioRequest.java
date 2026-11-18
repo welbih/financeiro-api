@@ -9,7 +9,9 @@ public record UsuarioRequest(
     @NotBlank @Size(max = 100) String sobrenome,
     @NotBlank @Email @Size(max = 254) String email,
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
-    @NotBlank @Size(min = 12, max = 72) String senha
+    @NotBlank @Size(min = 8, max = 72)
+    @Pattern(regexp = "(?s)^(?=.*\\p{Lu})(?=.*\\p{Ll})(?=.*[0-9])(?=.*[^\\p{L}\\p{N}\\s]).*$",
+        message = "Senha deve conter letra maiuscula, minuscula, numero e caractere especial") String senha
 ) {
     @JsonAnySetter
     public void rejeitarCampoDesconhecido(String campo, Object valor) {

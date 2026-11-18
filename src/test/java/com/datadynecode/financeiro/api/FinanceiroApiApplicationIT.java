@@ -161,6 +161,13 @@ class FinanceiroApiApplicationIT {
         assertFalse(usuarios.findById(maria.getId()).orElseThrow().isAtivo());
         assertEquals(401, enviarJson(client, tokenMaria, "GET", "http://localhost:" + port + "/lancamentos", null).statusCode());
         assertEquals(400, client.send(loginMaria, HttpResponse.BodyHandlers.ofString()).statusCode());
+        String ativar = base + "/" + maria.getId() + "/ativar";
+        assertEquals(204, enviarJson(client, token, "PATCH", ativar, null).statusCode());
+        assertEquals(204, enviarJson(client, token, "PATCH", ativar, null).statusCode());
+        assertTrue(usuarios.findById(maria.getId()).orElseThrow().isAtivo());
+        assertEquals(200, client.send(loginMaria, HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(403, enviarJson(client, tokenMaria, "PATCH", ativar, null).statusCode());
+        assertEquals(404, enviarJson(client, token, "PATCH", base + "/999999999/ativar", null).statusCode());
         assertEquals(404, enviarJson(client, token, "PATCH", base + "/999999999/inativar", null).statusCode());
         assertEquals(200, enviarJson(client, token, "GET", base, null).statusCode());
     }

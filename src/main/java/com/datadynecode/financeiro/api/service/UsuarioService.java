@@ -61,6 +61,15 @@ public class UsuarioService {
         usuarioRepository.saveAndFlush(usuario);
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    public void ativar(Long id) {
+        Usuario usuario = usuarioRepository.findById(id)
+            .orElseThrow(UsuarioNaoEncontradoException::new);
+        usuario.setAtivo(true);
+        usuarioRepository.saveAndFlush(usuario);
+    }
+
     private void validarTamanhoSenha(String senha) {
         if (senha.getBytes(StandardCharsets.UTF_8).length > 72) {
             throw new CadastroInvalidoException("Senha deve ter no maximo 72 bytes em UTF-8");
