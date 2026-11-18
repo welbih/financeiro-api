@@ -1,9 +1,11 @@
 package com.datadynecode.financeiro.api.service;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import com.datadynecode.financeiro.api.dto.UsuarioRequest;
+import com.datadynecode.financeiro.api.dto.AlterarSenhaRequest;
+import com.datadynecode.financeiro.api.exception.UsuarioAutenticadoNaoEncontradoException;
 import com.datadynecode.financeiro.api.exception.CadastroInvalidoException;
 import com.datadynecode.financeiro.api.exception.EmailJaCadastradoException;
 import com.datadynecode.financeiro.api.model.Role;
@@ -24,14 +26,79 @@ class UsuarioServiceTests {
     private final UsuarioService service = new UsuarioService(usuarios, roles, encoder);
 
     private UsuarioRequest request(String senha) {
-        return new UsuarioRequest("Maria", "Silva", "maria@example.com", senha, Set.of("ROLE_ADMIN"));
+        return new UsuarioRequest("Maria", "Silva", "maria@example.com", senha);
+    }
+
+    @Test
+    void inativaSemRemoverUsuarioOuDados() {
+        Usuario usuario = new Usuario();
+        assertTrue(usuario.isEnabled());
+        when(usuarios.findById(10L)).thenReturn(Optional.of(usuario));
+        service.inativar(10L);
+        assertFalse(usuario.isAtivo());
+        assertFalse(usuario.isEnabled());
+        service.inativar(10L);
+        verify(usuarios, times(2)).saveAndFlush(usuario);
+        verify(usuarios, never()).delete(any());
+        assertThrows(com.datadynecode.financeiro.api.exception.UsuarioNaoEncontradoException.class,
+            () -> service.inativar(99L));
+    }
+
+    @Test
+    void ativaUsuarioEPreservaSenha() {
+        Usuario usuario = new Usuario();
+        usuario.setAtivo(false);
+        usuario.setSenha("hash");
+        when(usuarios.findById(10L)).thenReturn(Optional.of(usuario));
+        service.ativar(10L);
+        assertTrue(usuario.isEnabled());
+        assertEquals("hash", usuario.getSenha());
+        service.ativar(10L);
+        verify(usuarios, times(2)).saveAndFlush(usuario);
+        assertThrows(com.datadynecode.financeiro.api.exception.UsuarioNaoEncontradoException.class,
+            () -> service.ativar(99L));
+    }
+
+    @Test
+    void alteraSenhaSomenteAposConferirAtual() {
+        Usuario usuario = new Usuario();
+        usuario.setSenha("hash-antigo");
+        when(usuarios.findByEmail("maria@example.com")).thenReturn(Optional.of(usuario));
+        when(encoder.matches("SenhaAtual123!", "hash-antigo")).thenReturn(true);
+        when(encoder.encode("NovaSenha123!")).thenReturn("hash-novo");
+        service.alterarSenha(new AlterarSenhaRequest("SenhaAtual123!", "NovaSenha123!"), "maria@example.com");
+        assertEquals("hash-novo", usuario.getSenha());
+        verify(usuarios).saveAndFlush(usuario);
+        verifyNoInteractions(roles);
+    }
+
+    @Test
+    void senhaAtualIncorretaPreservaHash() {
+        Usuario usuario = new Usuario();
+        usuario.setSenha("hash-antigo");
+        when(usuarios.findByEmail("maria@example.com")).thenReturn(Optional.of(usuario));
+        assertThrows(CadastroInvalidoException.class, () -> service.alterarSenha(
+            new AlterarSenhaRequest("errada", "NovaSenha123!"), "maria@example.com"));
+        assertEquals("hash-antigo", usuario.getSenha());
+        verify(usuarios, never()).saveAndFlush(any());
+        verify(encoder, never()).encode(any());
+    }
+
+    @Test
+    void trocaDeSenhaExigeUsuarioExistenteELimiteEmBytes() {
+        var request = new AlterarSenhaRequest("SenhaAtual123!", "á".repeat(40));
+        assertThrows(UsuarioAutenticadoNaoEncontradoException.class, () -> service.alterarSenha(request, "ausente@example.com"));
+        when(usuarios.findByEmail("maria@example.com")).thenReturn(Optional.of(new Usuario()));
+        assertThrows(CadastroInvalidoException.class, () -> service.alterarSenha(request, "maria@example.com"));
+        verify(usuarios, never()).saveAndFlush(any());
+        verifyNoInteractions(encoder);
     }
 
     @Test
     void cadastraComHashERoleExistente() {
         Role role = new Role();
-        role.setAuthority("ROLE_ADMIN");
-        when(roles.findByAuthorityIn(Set.of("ROLE_ADMIN"))).thenReturn(List.of(role));
+        role.setAuthority("ROLE_USER");
+        when(roles.findByAuthority("ROLE_USER")).thenReturn(Optional.of(role));
         when(encoder.encode("SenhaForte123!")).thenReturn("hash-bcrypt");
         when(usuarios.saveAndFlush(any())).thenAnswer(invocation -> {
             Usuario usuario = invocation.getArgument(0);
@@ -44,9 +111,9 @@ class UsuarioServiceTests {
         ArgumentCaptor<Usuario> captor = ArgumentCaptor.forClass(Usuario.class);
         verify(usuarios).saveAndFlush(captor.capture());
         assertEquals("hash-bcrypt", captor.getValue().getSenha());
-        assertTrue(captor.getValue().getRoles().contemPorNome("ROLE_ADMIN"));
+        assertTrue(captor.getValue().getRoles().contemPorNome("ROLE_USER"));
         assertEquals(10L, response.id());
-        assertEquals(Set.of("ROLE_ADMIN"), response.roles());
+        assertEquals(Set.of("ROLE_USER"), response.roles());
     }
 
     @Test
@@ -59,8 +126,8 @@ class UsuarioServiceTests {
 
     @Test
     void rejeitaRoleInexistente() {
-        when(roles.findByAuthorityIn(any())).thenReturn(List.of());
-        assertThrows(CadastroInvalidoException.class, () -> service.cadastrar(request("SenhaForte123!")));
+        when(roles.findByAuthority("ROLE_USER")).thenReturn(Optional.empty());
+        assertThrows(IllegalStateException.class, () -> service.cadastrar(request("SenhaForte123!")));
         verify(usuarios, never()).saveAndFlush(any());
         verifyNoInteractions(encoder);
     }

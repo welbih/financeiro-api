@@ -178,8 +178,62 @@ class OAuth2SecurityTests {
 
     private static final String CADASTRO = """
         {"nome":"Maria","sobrenome":"Silva","email":"maria@example.com",
-         "senha":"SenhaForte123!","roles":["ROLE_ADMIN"]}
+         "senha":"SenhaForte123!"}
         """;
+
+    @Test
+    void ativacaoDeUsuarioExigeAdmin() throws Exception {
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/ativar"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/ativar")
+                .with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"))))
+            .andExpect(status().isForbidden());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/ativar")
+                .with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"))))
+            .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void administracaoDeUsuariosExigeRoleAdmin() throws Exception {
+        mvc.perform(get("/usuarios")).andExpect(status().isUnauthorized());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/inativar"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get("/usuarios").with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"))))
+            .andExpect(status().isForbidden());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/inativar")
+                .with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"))))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/usuarios").with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"))))
+            .andExpect(status().isOk());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/usuarios/10/inativar")
+                .with(jwt().authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"))))
+            .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void alterarSenhaExigeTokenEValidaEntrada() throws Exception {
+        String body = "{\"senhaAtual\":\"SenhaAtual123!\",\"novaSenha\":\"NovaSenha123!\"}";
+        mvc.perform(put("/usuarios/senha").contentType("application/json").content(body))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(put("/usuarios/senha").with(jwt().jwt(token -> token.subject("maria@example.com")))
+                .contentType("application/json").content(body))
+            .andExpect(status().isNoContent()).andExpect(content().string(""));
+        org.mockito.Mockito.verify(context.getBean(UsuarioService.class)).alterarSenha(
+            new com.datadynecode.financeiro.api.dto.AlterarSenhaRequest("SenhaAtual123!", "NovaSenha123!"), "maria@example.com");
+        for (String invalido : new String[]{"{}", body.replace("NovaSenha123!", "curta"), body.replace("SenhaAtual123!", "")}) {
+            mvc.perform(put("/usuarios/senha").with(jwt()).contentType("application/json").content(invalido))
+                .andExpect(status().isBadRequest()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("NovaSenha123!"))));
+        }
+    }
+
+    @Test
+    void cadastroRejeitaRolesInformadasPeloCliente() throws Exception {
+        for (String roles : new String[]{"[\"ROLE_ADMIN\"]", "[\"ROLE_USER\"]", "[]", "null"}) {
+            mvc.perform(post("/usuarios").contentType("application/json")
+                    .content(CADASTRO.replace("\"senha\":", "\"roles\":" + roles + ",\"senha\":")))
+                .andExpect(status().isBadRequest());
+        }
+    }
 
     private static final String CADASTRO_LANCAMENTO = """
         {"tipoLancamento":"DESPESA","descricao":"Energia","valor":150.25,
@@ -422,12 +476,12 @@ class OAuth2SecurityTests {
     void administradorCadastraSemExporSenha() throws Exception {
         var service = context.getBean(UsuarioService.class);
         org.mockito.Mockito.when(service.cadastrar(org.mockito.ArgumentMatchers.any()))
-            .thenReturn(new UsuarioResponse(10L, "Maria", "Silva", "maria@example.com", java.util.Set.of("ROLE_ADMIN")));
+            .thenReturn(new UsuarioResponse(10L, "Maria", "Silva", "maria@example.com", java.util.Set.of("ROLE_USER")));
         mvc.perform(post("/usuarios").with(jwt().authorities(
                 new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")))
                 .contentType("application/json").content(CADASTRO))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.id").value(10))
-            .andExpect(jsonPath("$.roles[0]").value("ROLE_ADMIN"))
+            .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"))
             .andExpect(jsonPath("$.senha").doesNotExist()).andExpect(jsonPath("$.password").doesNotExist());
     }
 

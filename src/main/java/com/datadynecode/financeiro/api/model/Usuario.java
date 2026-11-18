@@ -42,6 +42,14 @@ public class Usuario implements UserDetails {
     @Column(nullable = false, length = 255)
     private String senha;
 
+    @Column(nullable = false)
+    private boolean ativo = true;
+
+    @Override
+    public boolean isEnabled() {
+        return ativo;
+    }
+
     @Embedded
     @Setter(AccessLevel.NONE)
     private Roles roles = new Roles();

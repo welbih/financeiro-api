@@ -73,10 +73,11 @@ class FinanceiroApiApplicationIT {
 
     @Test
     void validaMigrationsLoginPersistenciaEHealthSemSeedDev() throws Exception {
-        assertEquals(10, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(11, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class));
         assertEquals(0, usuarios.count());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class));
 
+        jdbc.update("INSERT INTO roles(authority) VALUES ('ROLE_USER')");
         Long roleId = jdbc.queryForObject("INSERT INTO roles(authority) VALUES ('ROLE_ADMIN') RETURNING id", Long.class);
         Usuario usuario = new Usuario();
         usuario.setNome("Integration");
@@ -106,7 +107,7 @@ class FinanceiroApiApplicationIT {
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString("""
                 {"nome":"Maria","sobrenome":"Silva","email":"maria@example.com",
-                 "senha":"SenhaForte123!","roles":["ROLE_ADMIN"]}
+                 "senha":"SenhaForte123!"}
                 """)).build();
         var created = client.send(cadastro, HttpResponse.BodyHandlers.ofString());
         assertEquals(201, created.statusCode(), created.body());
@@ -115,7 +116,8 @@ class FinanceiroApiApplicationIT {
         assertFalse(json.has("password"));
         var maria = usuarios.findByEmail("maria@example.com").orElseThrow();
         assertTrue(encoder.matches("SenhaForte123!", maria.getSenha()));
-        assertTrue(maria.getRoles().contemPorNome("ROLE_ADMIN"));
+        assertTrue(maria.getRoles().contemPorNome("ROLE_USER"));
+        assertFalse(maria.getRoles().contemPorNome("ROLE_ADMIN"));
         assertEquals(409, client.send(cadastro, HttpResponse.BodyHandlers.ofString()).statusCode());
 
         validarPersistenciaLancamento(usuario);
@@ -132,6 +134,67 @@ class FinanceiroApiApplicationIT {
         assertEquals("UP", JsonMapper.builder().build().readTree(health.body()).get("status").asString());
         assertFalse(health.body().contains("components"));
         validarLogout(client, token, login);
+        validarAdministracaoUsuarios(client, login, usuario, maria);
+        validarAlteracaoSenha(client, login, usuario);
+    }
+
+    private void validarAdministracaoUsuarios(HttpClient client, HttpRequest login, Usuario admin, Usuario maria) throws Exception {
+        var mapper = JsonMapper.builder().build();
+        String token = mapper.readTree(client.send(login, HttpResponse.BodyHandlers.ofString()).body()).get("access_token").asString();
+        HttpRequest loginMaria = HttpRequest.newBuilder(login.uri())
+            .header("Authorization", login.headers().firstValue("Authorization").orElseThrow())
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString("grant_type=urn:financeiro:params:oauth:grant-type:password&username=maria@example.com&password=SenhaForte123!"))
+            .build();
+        String tokenMaria = mapper.readTree(client.send(loginMaria, HttpResponse.BodyHandlers.ofString()).body()).get("access_token").asString();
+        String base = "http://localhost:" + port + "/usuarios";
+        assertEquals(403, enviarJson(client, tokenMaria, "GET", base, null).statusCode());
+        assertEquals(403, enviarJson(client, tokenMaria, "PATCH", base + "/" + admin.getId() + "/inativar", null).statusCode());
+        var lista = enviarJson(client, token, "GET", base + "?page=0&size=1", null);
+        assertEquals(200, lista.statusCode(), lista.body());
+        assertEquals(1, mapper.readTree(lista.body()).get("content").size());
+        assertEquals(2, mapper.readTree(lista.body()).get("totalElements").asInt());
+        assertFalse(lista.body().contains("senha"));
+        String inativar = base + "/" + maria.getId() + "/inativar";
+        assertEquals(204, enviarJson(client, token, "PATCH", inativar, null).statusCode());
+        assertEquals(204, enviarJson(client, token, "PATCH", inativar, null).statusCode());
+        assertFalse(usuarios.findById(maria.getId()).orElseThrow().isAtivo());
+        assertEquals(401, enviarJson(client, tokenMaria, "GET", "http://localhost:" + port + "/lancamentos", null).statusCode());
+        assertEquals(400, client.send(loginMaria, HttpResponse.BodyHandlers.ofString()).statusCode());
+        String ativar = base + "/" + maria.getId() + "/ativar";
+        assertEquals(204, enviarJson(client, token, "PATCH", ativar, null).statusCode());
+        assertEquals(204, enviarJson(client, token, "PATCH", ativar, null).statusCode());
+        assertTrue(usuarios.findById(maria.getId()).orElseThrow().isAtivo());
+        assertEquals(200, client.send(loginMaria, HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(403, enviarJson(client, tokenMaria, "PATCH", ativar, null).statusCode());
+        assertEquals(404, enviarJson(client, token, "PATCH", base + "/999999999/ativar", null).statusCode());
+        assertEquals(404, enviarJson(client, token, "PATCH", base + "/999999999/inativar", null).statusCode());
+        assertEquals(200, enviarJson(client, token, "GET", base, null).statusCode());
+    }
+
+    private void validarAlteracaoSenha(HttpClient client, HttpRequest login, Usuario usuario) throws Exception {
+        var autenticacao = client.send(login, HttpResponse.BodyHandlers.ofString());
+        String token = JsonMapper.builder().build().readTree(autenticacao.body()).get("access_token").asString();
+        String url = "http://localhost:" + port + "/usuarios/senha";
+        String hashAnterior = usuarios.findById(usuario.getId()).orElseThrow().getSenha();
+        assertEquals(400, enviarJson(client, token, "PUT", url,
+            "{\"senhaAtual\":\"errada\",\"novaSenha\":\"NovaSenhaForte123!\"}").statusCode());
+        assertEquals(hashAnterior, usuarios.findById(usuario.getId()).orElseThrow().getSenha());
+        var resposta = enviarJson(client, token, "PUT", url,
+            "{\"senhaAtual\":\"test-password\",\"novaSenha\":\"NovaSenhaForte123!\"}");
+        assertEquals(204, resposta.statusCode(), resposta.body());
+        assertEquals("", resposta.body());
+        String hashNovo = usuarios.findById(usuario.getId()).orElseThrow().getSenha();
+        assertTrue(encoder.matches("NovaSenhaForte123!", hashNovo));
+        assertFalse(encoder.matches("test-password", hashNovo));
+        assertNotEquals("NovaSenhaForte123!", hashNovo);
+        assertEquals(400, client.send(login, HttpResponse.BodyHandlers.ofString()).statusCode());
+        HttpRequest novoLogin = HttpRequest.newBuilder(login.uri())
+            .header("Authorization", login.headers().firstValue("Authorization").orElseThrow())
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString("grant_type=urn:financeiro:params:oauth:grant-type:password&username=integration@example.com&password=NovaSenhaForte123!"))
+            .build();
+        assertEquals(200, client.send(novoLogin, HttpResponse.BodyHandlers.ofString()).statusCode());
     }
 
     private void validarPlanejamento(HttpClient client, String token, Usuario usuario, Usuario outro) throws Exception {

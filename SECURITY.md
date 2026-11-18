@@ -162,25 +162,50 @@ explicitamente com o mesmo BCrypt usado ao registrar o cliente.
 
 ## Cadastro de usuarios
 
+### Alteracao de senha
+
+`PUT /usuarios/senha` exige Bearer token e altera apenas a senha do usuario
+identificado pelo token. Corpo:
+
+```json
+{"senhaAtual":"SenhaAtual123!","novaSenha":"NovaSenhaForte123!"}
+```
+
+A senha atual e conferida com BCrypt antes da gravacao. A nova senha deve ter
+ao menos 8 caracteres, incluindo maiuscula, minuscula, numero e caractere especial (espaco nao conta), e no maximo 72 bytes UTF-8, como no cadastro.
+Retorna `204` sem corpo; senha atual incorreta ou dados invalidos retornam `400`.
+Sem token valido retorna `401`. As senhas nao sao devolvidas na resposta.
+Tokens ja emitidos permanecem validos ate expirarem ou serem revogados no logout.
+
+### Cadastro publico
+
 `POST /usuarios` esta temporariamente publico, sem exigir token ou role.
-Envie JSON com nome, sobrenome, email, senha original e nomes das permissoes:
+Envie JSON com nome, sobrenome, email e senha original:
 
 ```json
 {
   "nome": "Maria",
   "sobrenome": "Silva",
   "email": "maria@example.com",
-  "senha": "UmaSenhaForte123!",
-  "roles": ["ROLE_ADMIN"]
+  "senha": "UmaSenhaForte123!"
 }
 ```
 
-As roles precisam existir no banco; o endpoint nao cria novas permissoes.
-A senha deve ter ao menos 12 caracteres e no maximo 72 bytes UTF-8, e e salva
+A API atribui exclusivamente `ROLE_USER`. Enviar `roles` retorna `400`.
+A role precisa existir no banco; o endpoint nao cria permissoes. Em producao,
+provisione diretamente no PostgreSQL antes de liberar cadastros:
+
+```sql
+INSERT INTO roles (authority) VALUES ('ROLE_USER')
+ON CONFLICT (authority) DO NOTHING;
+```
+
+O seed dev inclui essa role. Se ausente, o cadastro falha sem criar usuario
+(erro de configuracao do servidor).
+A senha deve ter ao menos 8 caracteres, incluindo maiuscula, minuscula, numero e caractere especial (espaco nao conta), e no maximo 72 bytes UTF-8, e e salva
 como hash BCrypt. O retorno `201` inclui id, nome, sobrenome, email e roles,
-sem senha ou hash. Email duplicado retorna `409`; entrada invalida ou role
-inexistente retorna `400`. Enquanto a rota estiver publica, qualquer pessoa
-pode cadastrar usuarios com as roles existentes, inclusive `ROLE_ADMIN`.
+sem senha ou hash. Email duplicado retorna `409`; entrada invalida retorna `400`.
+O cadastro publico nao permite conceder `ROLE_ADMIN`.
 Use No Auth no Postman; um Bearer Token invalido enviado pode retornar `401`.
 
 A API atua como Authorization Server e Resource Server. O login direto usa
@@ -209,6 +234,9 @@ Em Body, selecione `x-www-form-urlencoded`:
 
 O usuario do seed dev usa `admin@financeiro.local`. A senha correspondente ao
 hash atual do seed e `123456`.
+
+O seed dev tambem inclui `usuario@financeiro.local`, ativo, com `ROLE_USER` e
+senha `Usuario123!`, armazenada como hash BCrypt.
 
 A resposta inclui `access_token`, `token_type`, `expires_in` e `scope`.
 Use `Authorization: Bearer <access_token>` nas requisicoes aos recursos.
