@@ -2,8 +2,13 @@ package com.datadynecode.financeiro.api.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.Clock;
+import java.time.ZoneId;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Comparator;
 
 import com.datadynecode.financeiro.api.dto.*;
 import com.datadynecode.financeiro.api.exception.CadastroInvalidoException;
@@ -29,6 +34,7 @@ public class PlanejamentoFinanceiroService {
     private final PlanejamentoFinanceiroRepository planejamentoRepository;
     private final UsuarioRepository usuarioRepository;
     private final LancamentoRepository lancamentoRepository;
+    private final Clock clock;
 
     @Transactional
     public PlanejamentoFinanceiroResponse configurar(PlanejamentoFinanceiroRequest request, String emailAutenticado) {
@@ -43,13 +49,13 @@ public class PlanejamentoFinanceiroService {
         planejamento.setDiaFechamento(request.diaFechamento());
         planejamento.setDataInicioControle(request.dataInicioControle());
         planejamento.setSaldoInicial(request.saldoInicial().setScale(2));
-        return PlanejamentoFinanceiroMapper.toResponse(planejamentoRepository.saveAndFlush(planejamento));
+        return respostaConfiguracao(planejamentoRepository.saveAndFlush(planejamento));
     }
 
     @Transactional(readOnly = true)
     public PlanejamentoFinanceiroResponse buscar(String emailAutenticado) {
         Usuario usuario = buscarUsuario(emailAutenticado);
-        return PlanejamentoFinanceiroMapper.toResponse(buscarPlanejamento(usuario));
+        return respostaConfiguracao(buscarPlanejamento(usuario));
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -89,11 +95,46 @@ public class PlanejamentoFinanceiroService {
         return new ResumoPlanejamentoFinanceiroResponse(mesFechamento.toString(), inicio, fim, saldoInicial,
             receitas, despesas, receitasRecebidas, receitas.subtract(receitasRecebidas), despesasPagas,
             despesas.subtract(despesasPagas), resultado, saldoInicial.add(resultado),
-            lancamentos.stream().map(LancamentoMapper::toResponse).toList());
+            lancamentos.stream().map(LancamentoMapper::toResponse).toList(), agruparPorCategoria(lancamentos));
     }
+
+    private List<TotalPorCategoriaResponse> agruparPorCategoria(List<Lancamento> lancamentos) {
+        Map<CategoriaTipo, TotalPorCategoriaResponse> totais = new HashMap<>();
+        BigDecimal zero = BigDecimal.ZERO.setScale(2);
+        for (Lancamento lancamento : lancamentos) {
+            var categoria = lancamento.getCategoria();
+            Long id = categoria == null ? null : categoria.getId();
+            String nome = categoria == null ? "Sem categoria" : categoria.getNome();
+            TipoLancamento tipo = lancamento.getTipoLancamento();
+            CategoriaTipo chave = new CategoriaTipo(id, tipo);
+            TotalPorCategoriaResponse atual = totais.getOrDefault(chave,
+                new TotalPorCategoriaResponse(id, nome, tipo, zero));
+            totais.put(chave, new TotalPorCategoriaResponse(id, nome, tipo,
+                atual.total().add(lancamento.getValor())));
+        }
+        return totais.values().stream()
+            .sorted(Comparator.comparing(TotalPorCategoriaResponse::categoriaId,
+                Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(total -> total.tipoLancamento().name()))
+            .toList();
+    }
+
+    private record CategoriaTipo(Long categoriaId, TipoLancamento tipoLancamento) {}
 
     private LocalDate fechamento(YearMonth mes, int dia) {
         return mes.atDay(Math.min(dia, mes.lengthOfMonth()));
+    }
+
+    private YearMonth cicloDaData(LocalDate data, int diaFechamento) {
+        YearMonth mes = YearMonth.from(data);
+        return data.isAfter(fechamento(mes, diaFechamento)) ? mes.plusMonths(1) : mes;
+    }
+
+    private PlanejamentoFinanceiroResponse respostaConfiguracao(PlanejamentoFinanceiro planejamento) {
+        LocalDate hoje = LocalDate.now(clock.withZone(ZoneId.of("America/Sao_Paulo")));
+        return PlanejamentoFinanceiroMapper.toResponse(planejamento,
+            cicloDaData(hoje, planejamento.getDiaFechamento()).toString(),
+            cicloDaData(planejamento.getDataInicioControle(), planejamento.getDiaFechamento()).toString());
     }
 
     private Usuario buscarUsuario(String emailAutenticado) {

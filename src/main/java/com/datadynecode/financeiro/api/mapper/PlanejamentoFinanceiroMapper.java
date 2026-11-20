@@ -6,8 +6,10 @@ import com.datadynecode.financeiro.api.model.PlanejamentoFinanceiro;
 public final class PlanejamentoFinanceiroMapper {
     private PlanejamentoFinanceiroMapper() {}
 
-    public static PlanejamentoFinanceiroResponse toResponse(PlanejamentoFinanceiro planejamento) {
+    public static PlanejamentoFinanceiroResponse toResponse(PlanejamentoFinanceiro planejamento,
+            String cicloAtual, String primeiroCicloDisponivel) {
         return new PlanejamentoFinanceiroResponse(planejamento.getId(), planejamento.getDiaFechamento(),
-            planejamento.getDataInicioControle(), planejamento.getSaldoInicial(), planejamento.getUsuario().getId());
+            planejamento.getDataInicioControle(), planejamento.getSaldoInicial(), planejamento.getUsuario().getId(),
+            cicloAtual, primeiroCicloDisponivel);
     }
 }

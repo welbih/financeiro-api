@@ -125,6 +125,7 @@ class FinanceiroApiApplicationIT {
         validarCrudCategorias(client, token, usuario, maria);
         validarCategoriaOpcional(client, token);
         validarPlanejamento(client, token, usuario, maria);
+        validarTotaisPorCategoria(client, token, usuario, maria);
         validarRecorrencias(client, token, usuario);
         validarPagamento(client, token, usuario, maria);
 
@@ -209,9 +210,14 @@ class FinanceiroApiApplicationIT {
         assertEquals(200, salvo.statusCode(), salvo.body());
         var mapper = JsonMapper.builder().build();
         assertEquals(usuario.getId().longValue(), mapper.readTree(salvo.body()).get("usuarioId").asLong());
+        assertEquals("2090-12", mapper.readTree(salvo.body()).get("primeiroCicloDisponivel").asString());
+        assertTrue(mapper.readTree(salvo.body()).get("cicloAtual").asString().matches("[0-9]{4}-[0-9]{2}"));
         assertEquals(200, enviarJson(client, token, "PUT", base, config).statusCode());
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM planejamentos_financeiros", Integer.class));
-        assertEquals(200, enviarJson(client, token, "GET", base, null).statusCode());
+        var configuracaoConsultada = enviarJson(client, token, "GET", base, null);
+        assertEquals(200, configuracaoConsultada.statusCode());
+        assertEquals("2090-12", mapper.readTree(configuracaoConsultada.body()).get("primeiroCicloDisponivel").asString());
+        assertTrue(mapper.readTree(configuracaoConsultada.body()).get("cicloAtual").asString().matches("[0-9]{4}-[0-9]{2}"));
         assertEquals(400, enviarJson(client, token, "PUT", base, config.replace(":9,", ":32,")).statusCode());
         assertEquals(400, enviarJson(client, token, "PUT", base, config.replace("2090-11-10", "2090-11-11")).statusCode());
         inserirParaResumo(usuario, "DESPESA", "999", "2090-11-09");
@@ -270,6 +276,67 @@ class FinanceiroApiApplicationIT {
         Long alheio = inserirParaResumo(outro, "DESPESA", "50", "2095-01-01");
         assertEquals(404, enviarJson(client, token, "PATCH", url.replace("/" + id + "/", "/" + alheio + "/"), "{}").statusCode());
         assertEquals(401, client.send(HttpRequest.newBuilder(URI.create(url)).method("PATCH", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+    }
+
+    private void validarTotaisPorCategoria(HttpClient client, String token, Usuario usuario, Usuario outro) throws Exception {
+        String base = "http://localhost:" + port + "/planejamento-financeiro";
+        assertEquals(200, enviarJson(client, token, "PUT", base,
+            "{\"diaFechamento\":9,\"dataInicioControle\":\"2100-01-10\",\"saldoInicial\":700}").statusCode());
+        inserirParaResumo(usuario, "RECEITA", "100.10", "2100-02-09");
+        inserirParaResumo(usuario, "DESPESA", "20.05", "2100-01-10");
+        Long semCategoria = inserirParaResumo(usuario, "RECEITA", "10.20", "2100-02-15");
+        jdbc.update("UPDATE lancamentos SET categoria_id = NULL, data_previsao_pagamento = DATE '2100-02-09' WHERE id = ?", semCategoria);
+        Long despesaSemCategoria = inserirParaResumo(usuario, "DESPESA", "0.30", "2100-01-15");
+        jdbc.update("UPDATE lancamentos SET categoria_id = NULL, pago = true, data_pagamento = DATE '2100-01-15' WHERE id = ?", despesaSemCategoria);
+        jdbc.update("""
+            INSERT INTO lancamentos (usuario_id, tipo_lancamento, descricao, valor, pago, data_vencimento)
+            SELECT ?, 'RECEITA', 'Agrupamento sem paginacao', 0.01, false, DATE '2100-01-20'
+            FROM generate_series(1, 25)
+            """, usuario.getId());
+        inserirParaResumo(usuario, "RECEITA", "9999", "2100-01-09");
+        inserirParaResumo(usuario, "DESPESA", "9999", "2100-02-10");
+        Long previsaoFora = inserirParaResumo(usuario, "RECEITA", "9999", "2100-02-09");
+        jdbc.update("UPDATE lancamentos SET data_previsao_pagamento = DATE '2100-02-10' WHERE id = ?", previsaoFora);
+        inserirParaResumo(outro, "RECEITA", "9999", "2100-02-09");
+        var resposta = enviarJson(client, token, "GET", base + "/resumo?mesFechamento=2100-02", null);
+        assertEquals(200, resposta.statusCode(), resposta.body());
+        var json = JsonMapper.builder().build().readTree(resposta.body());
+        assertEquals(29, json.get("lancamentos").size());
+        assertEquals(0, new BigDecimal("110.55").compareTo(json.get("totalReceitas").decimalValue()));
+        assertEquals(0, new BigDecimal("20.35").compareTo(json.get("totalDespesas").decimalValue()));
+        assertEquals(700, json.get("saldoInicialProjetado").asInt());
+        var totais = json.get("totaisPorCategoria");
+        assertEquals(4, totais.size());
+        BigDecimal receitas = BigDecimal.ZERO;
+        BigDecimal despesas = BigDecimal.ZERO;
+        long anterior = -1;
+        for (var total : totais) {
+            assertFalse(total.has("totalReceitas"));
+            assertFalse(total.has("totalDespesas"));
+            if (total.get("tipoLancamento").asString().equals("RECEITA")) {
+                receitas = receitas.add(total.get("total").decimalValue());
+            } else {
+                despesas = despesas.add(total.get("total").decimalValue());
+            }
+            if (!total.get("categoriaId").isNull()) {
+                long id = total.get("categoriaId").asLong();
+                assertTrue(id > anterior);
+                anterior = id;
+            }
+        }
+        assertEquals(0, receitas.compareTo(json.get("totalReceitas").decimalValue()));
+        assertEquals(0, despesas.compareTo(json.get("totalDespesas").decimalValue()));
+        assertTrue(totais.get(2).get("categoriaId").isNull());
+        assertEquals("Sem categoria", totais.get(2).get("categoriaNome").asString());
+        assertTrue(totais.get(3).get("categoriaId").isNull());
+        assertEquals("Sem categoria", totais.get(3).get("categoriaNome").asString());
+        assertEquals("DESPESA", totais.get(2).get("tipoLancamento").asString());
+        assertEquals("RECEITA", totais.get(3).get("tipoLancamento").asString());
+        assertEquals(0, new BigDecimal("0.30").compareTo(totais.get(2).get("total").decimalValue()));
+        assertEquals(0, new BigDecimal("10.45").compareTo(totais.get(3).get("total").decimalValue()));
+        var vazio = enviarJson(client, token, "GET", base + "/resumo?mesFechamento=2100-04", null);
+        assertEquals(200, vazio.statusCode());
+        assertTrue(JsonMapper.builder().build().readTree(vazio.body()).get("totaisPorCategoria").isEmpty());
     }
 
     private void validarRecorrencias(HttpClient client, String token, Usuario usuario) throws Exception {
