@@ -21,6 +21,7 @@ public interface LancamentoRepository extends JpaRepository<Lancamento, Long> {
 
     @Query("""
         select lancamento from Lancamento lancamento
+        left join fetch lancamento.categoria
         where lancamento.usuario.id = :usuarioId
           and coalesce(lancamento.dataPrevisaoPagamento, lancamento.dataVencimento) between :inicio and :fim
         order by coalesce(lancamento.dataPrevisaoPagamento, lancamento.dataVencimento), lancamento.id

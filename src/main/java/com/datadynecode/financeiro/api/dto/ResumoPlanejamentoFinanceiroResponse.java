@@ -17,5 +17,6 @@ public record ResumoPlanejamentoFinanceiroResponse(
     BigDecimal despesasPendentes,
     BigDecimal resultadoCiclo,
     BigDecimal saldoFinalProjetado,
-    List<LancamentoResponse> lancamentos
+    List<LancamentoResponse> lancamentos,
+    List<TotalPorCategoriaResponse> totaisPorCategoria
 ) {}
